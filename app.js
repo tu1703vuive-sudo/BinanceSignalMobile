@@ -4,6 +4,7 @@ const API_BASES=['https://api.binance.com','https://api1.binance.com','https://a
 const WS_BASE='wss://stream.binance.com:9443/stream?streams=';
 const DEFAULT_SYMBOLS=['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT'];
 const CHART_TIMEFRAMES=['15m','1h','4h','12h','1d','1w','1M'];
+const ANALYSIS_TIMEFRAMES={swing:['1M','1w','1d','12h','4h'],short:['15m','1h','4h']};
 const storedMode=localStorage.getItem('bsm_mode')||'swing';
 const state={
   mode:storedMode,
@@ -47,11 +48,11 @@ function emaTrend(c){if(c.length<205)return 0;let v=c.map(x=>x.close),cl=v.at(-1
 function trend(c,fast,slow){if(c.length<slow+2)return 0;let v=c.map(x=>x.close),cl=v.at(-1),f=ema(v,fast),s=ema(v,slow);if(cl>f&&f>s)return 1;if(cl<f&&f<s)return-1;return 0}
 function adaptiveTrend(c){if(c.length>=205){let t=emaTrend(c);if(t)return t}return trend(c,20,50)}
 function safeAtr(c,fallback){let a=atr(c);return a>0?a:Math.max(fallback,1e-8)}
-function strength(frames,profile){let s=new Set(frames);if(profile==='swing'){if(s.has('1M')||(s.has('1W')&&s.size>=2)||(s.has('1D')&&(s.has('12H')||s.has('4H'))))return'VERY STRONG';if(s.has('1W')||s.has('1D'))return'MAJOR';if(s.size>=2||s.has('12H'))return'STRONG';return s.has('4H')?'MEDIUM':'SWING'}if((s.has('4H')&&s.has('1H'))||(s.has('1H')&&s.has('15m')&&s.has('5m')))return'VERY STRONG';if(s.has('4H')||(s.has('1H')&&s.has('15m')))return'STRONG';if(s.has('1H')||(s.has('15m')&&s.has('5m')))return'MEDIUM';return'SHORT TERM'}
+function strength(frames,profile){let s=new Set(frames);if(profile==='swing'){if(s.has('1M')||(s.has('1W')&&s.size>=2)||(s.has('1D')&&(s.has('12H')||s.has('4H'))))return'VERY STRONG';if(s.has('1W')||s.has('1D'))return'MAJOR';if(s.size>=2||s.has('12H'))return'STRONG';return s.has('4H')?'MEDIUM':'SWING'}if(s.has('4H')&&s.has('1H'))return'VERY STRONG';if(s.size>=2||(s.has('1H')&&s.has('15m')))return'STRONG';if(s.has('4H')||s.has('1H'))return'MEDIUM';return'SHORT TERM'}
 function zone(low,high,profile,...frames){let fr=[...new Set(frames)];return{low:Math.min(low,high),high:Math.max(low,high),frames:fr,strength:strength(fr,profile),get mid(){return(this.low+this.high)/2}}}
 function buildSupport(c,lookback,tf,atrWidth,profile){let s=recentSupport(c,Math.min(lookback,c.length)),a=safeAtr(c,Math.max(s*.01,1e-8)),mr=profile==='swing'?.0018:.0008,w=Math.max(a*atrWidth,Math.max(s*mr,1e-8));return zone(s,s+w,profile,tf)}
 function buildResistance(c,lookback,tf,atrWidth,profile){let r=recentResistance(c,Math.min(lookback,c.length)),a=safeAtr(c,Math.max(r*.01,1e-8)),mr=profile==='swing'?.0018:.0008,w=Math.max(a*atrWidth,Math.max(r*mr,1e-8));return zone(Math.max(0,r-w),r,profile,tf)}
-const frameOrder={'1M':0,'1W':1,'1D':2,'12H':3,'4H':4,'1H':5,'15m':6,'5m':7};
+const frameOrder={'1M':0,'1W':1,'1D':2,'12H':3,'4H':4,'1H':5,'15m':6};
 function mergeZones(zones,profile,tolFactor){let sorted=[...zones].sort((a,b)=>a.low-b.low),m=[];for(let z of sorted){if(!m.length){m.push(z);continue}let last=m.at(-1),tol=Math.max(Math.max(last.high-last.low,1e-8),Math.max(z.high-z.low,1e-8))*tolFactor;if(z.low<=last.high+tol){let fr=[...new Set([...last.frames,...z.frames])].sort((a,b)=>(frameOrder[a]??9)-(frameOrder[b]??9));m[m.length-1]=zone(Math.min(last.low,z.low),Math.max(last.high,z.high),profile,...fr)}else m.push(z)}return m}
 function rankSupports(z,p){return [...z].sort((a,b)=>((a.mid>p?1:0)-(b.mid>p?1:0))||Math.abs(p-a.mid)-Math.abs(p-b.mid))}
 function rankRes(z,p){return [...z].sort((a,b)=>((a.mid<p?1:0)-(b.mid<p?1:0))||Math.abs(a.mid-p)-Math.abs(b.mid-p))}
@@ -65,14 +66,15 @@ function analyzeSwing(data){
   let M=closedCandles(data['1M']),W=closedCandles(data['1w']),D=closedCandles(data['1d']),H12=closedCandles(data['12h']),H4=closedCandles(data['4h']);
   if(W.length<55||D.length<60||H12.length<60||H4.length<60)return basicWait('DÀI HẠN','Chưa đủ dữ liệu nến đã đóng ở khung lớn.');
   let reasons=[],tM=trend(M,6,12),tW=trend(W,20,50),tD=adaptiveTrend(D),t12=adaptiveTrend(H12),t4=trend(H4,20,50),strD=marketStructure(D);
-  let score=tM*15+tW*25+tD*25+t12*15+strD*10;
-  reasons.push(reasonTf('1M',tM,'chu kỳ lớn'),reasonTf('1W',tW,'xu hướng chính'),reasonTf('1D',tD,'setup chính'),reasonTf('12H',t12,'bối cảnh vào vùng'));
+  reasons.push(reasonTf('1M',tM,'chu kỳ lớn'),reasonTf('1W',tW,'xu hướng chính'),reasonTf('1D',tD,'cấu trúc chính'),reasonTf('12H',t12,'xác nhận'));
   reasons.push(strD>0?'✓ 1D: cấu trúc High/Low đang nâng dần':strD<0?'✓ 1D: cấu trúc High/Low đang hạ dần':'○ 1D: cấu trúc đang đi ngang / chưa xác nhận');
   let c4=H4.map(x=>x.close),r4=rsi(c4),m4=macd(c4),e20=ema(c4,20),last4=H4.at(-1),trig=0;
-  if(last4.close>e20&&r4>=52&&r4<72&&m4.hist>0){trig=1;score+=10;reasons.push(`✓ 4H: trigger tăng (RSI ${r4.toFixed(1)}, MACD dương)`)}
-  else if(last4.close<e20&&r4<=48&&r4>28&&m4.hist<0){trig=-1;score-=10;reasons.push(`✓ 4H: trigger giảm (RSI ${r4.toFixed(1)}, MACD âm)`)}else reasons.push(`○ 4H: chưa có trigger rõ (RSI ${r4.toFixed(1)})`);
+  if(last4.close>e20&&r4>=52&&r4<72&&m4.hist>0){trig=1;reasons.push(`✓ 4H: timing LONG xác nhận (RSI ${r4.toFixed(1)}, MACD dương)`)}
+  else if(last4.close<e20&&r4<=48&&r4>28&&m4.hist<0){trig=-1;reasons.push(`✓ 4H: timing SHORT xác nhận (RSI ${r4.toFixed(1)}, MACD âm)`)}else reasons.push(`○ 4H: timing vào lệnh chưa rõ (RSI ${r4.toFixed(1)})`);
+  // Trọng số Dài hạn: 1M 10% • 1W 25% • 1D 30% • 12H 20% • 4H 15%.
+  let t4Score=trig||t4,score=clamp(tM*10+tW*25+tD*30+t12*20+t4Score*15,-100,100);
   let av=avgPrevVol(D,20),vr=av?D.at(-1).volume/av:0;reasons.push(vr>=1.2?`✓ Volume 1D nổi bật (${vr.toFixed(1)}x trung bình 20D)`:`○ Volume 1D bình thường (${vr.toFixed(1)}x trung bình 20D)`);
-  score=clamp(score,-100,100);let p=last4.close,a4=safeAtr(H4,p*.01),aD=safeAtr(D,p*.025);
+  let p=last4.close,a4=safeAtr(H4,p*.01),aD=safeAtr(D,p*.025);
   let su=[buildSupport(W,52,'1W',.75,'swing'),buildSupport(D,120,'1D',.65,'swing'),buildSupport(H12,140,'12H',.55,'swing'),buildSupport(H4,150,'4H',.50,'swing')];
   let re=[buildResistance(W,52,'1W',.75,'swing'),buildResistance(D,120,'1D',.65,'swing'),buildResistance(H12,140,'12H',.55,'swing'),buildResistance(H4,150,'4H',.50,'swing')];
   if(M.length>=8){su.push(buildSupport(M,Math.min(18,M.length),'1M',.85,'swing'));re.push(buildResistance(M,Math.min(18,M.length),'1M',.85,'swing'))}
@@ -84,7 +86,7 @@ function analyzeSwing(data){
   let closeR=pr&&pr.low>p&&pr.low-p<.75*aD,closeS=ps&&ps.high<p&&p-ps.high<.75*aD;
   let kind='WAIT';if(mw||wd)kind='WAIT';else if(longBias&&score>=65&&trig>0&&nearS&&!closeR)kind='LONG';else if(shortBias&&score<=-65&&trig<0&&nearR&&!closeS)kind='SHORT';else if(longBias&&score>=45)kind='WATCH LONG';else if(shortBias&&score<=-45)kind='WATCH SHORT';
   if(closeR&&longBias)reasons.unshift('⚠ Giá đang sát kháng cự khung lớn → chưa xác nhận LONG mới.');if(closeS&&shortBias)reasons.unshift('⚠ Giá đang sát hỗ trợ khung lớn → chưa xác nhận SHORT mới.');
-  let out={kind,score,mode:'DÀI HẠN',timeframes:`${tf('1M',tM)}   ${tf('1W',tW)}   ${tf('1D',tD)}   ${tf('12H',t12)}   ${tf('4H',trig||t4)}`,reasons:reasons.slice(0,9),supports:su,resistances:re,primarySupport:ps,primaryResistance:pr,ref:D.at(-1).close};
+  let out={kind,score,mode:'DÀI HẠN',timeframes:`${tf('1M',tM)}   ${tf('1W',tW)}   ${tf('1D',tD)}   ${tf('12H',t12)}   ${tf('4H',t4Score)}`,reasons:reasons.slice(0,9),supports:su,resistances:re,primarySupport:ps,primaryResistance:pr,ref:D.at(-1).close};
   if(kind==='LONG'&&ps){let lo=ps.low,hi=ps.high,sl=lo-.6*aD,mid=(lo+hi)/2,risk=mid-sl,t=longTargets(mid,risk,re.filter(z=>z.low>mid).map(z=>z.low));if(risk>0&&t[0]-mid>=1.35*risk){Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1:t[0],tp2:t[1],tp3:t[2],trigger:'4H đóng xác nhận tăng tại vùng hỗ trợ; 1D/1W vẫn giữ bias tăng.',invalid:`Luận điểm LONG yếu đi nếu 1D đóng dưới ${fmt(sl)}.`})}else{out.kind='WATCH LONG'}}
   if(kind==='SHORT'&&pr){let lo=pr.low,hi=pr.high,sl=hi+.6*aD,mid=(lo+hi)/2,risk=sl-mid,t=shortTargets(mid,risk,su.filter(z=>z.high<mid).map(z=>z.high));if(risk>0&&mid-t[0]>=1.35*risk){Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1:t[0],tp2:t[1],tp3:t[2],trigger:'4H đóng xác nhận giảm tại vùng kháng cự; 1D/1W vẫn giữ bias giảm.',invalid:`Luận điểm SHORT yếu đi nếu 1D đóng trên ${fmt(sl)}.`})}else{out.kind='WATCH SHORT'}}
   if(out.kind==='WATCH LONG'&&ps){out.watchLow=ps.low;out.watchHigh=ps.high;out.invalid=out.invalid||`Vùng canh mất ý nghĩa nếu 1D đóng dưới khoảng ${fmt(ps.low-.6*aD)}.`;out.hint=`CANH LONG vùng ${fmt(ps.low)} – ${fmt(ps.high)} [${ps.frames.join('+')}] ${ps.strength}. Đây là vùng chờ, chưa phải lệnh.`;if(pr)out.breakout=`Breakout thay thế: chờ 1D đóng trên ${fmt(pr.high)}, sau đó ưu tiên retest vùng vừa phá.`}
@@ -95,24 +97,27 @@ function analyzeSwing(data){
 }
 
 function analyzeShort(data){
-  let C5=closedCandles(data['5m']),C15=closedCandles(data['15m']),H1=closedCandles(data['1h']),H4=closedCandles(data['4h']);
-  if(C5.length<210||C15.length<210||H1.length<210||H4.length<210)return basicWait('NGẮN HẠN','Chưa đủ dữ liệu nến đã đóng để phân tích ngắn hạn an toàn.');
-  let reasons=[],t4=emaTrend(H4),t1=emaTrend(H1),str=marketStructure(H1),score=t4*25+t1*20+str*15;
-  reasons.push(t4>0?'✓ 4H: giá > EMA50 > EMA200':t4<0?'✓ 4H: giá < EMA50 < EMA200':'○ 4H: xu hướng EMA chưa rõ',t1>0?'✓ 1H: xu hướng tăng đồng thuận':t1<0?'✓ 1H: xu hướng giảm đồng thuận':'○ 1H: xu hướng chưa rõ',str>0?'✓ 1H: cấu trúc High/Low đang nâng dần':str<0?'✓ 1H: cấu trúc High/Low đang hạ dần':'○ 1H: cấu trúc giá đi ngang / chưa xác nhận');
-  let v15=C15.map(x=>x.close),r15=rsi(v15),m15=macd(v15),e20=ema(v15,20),e50=ema(v15,50),a15=safeAtr(C15,C15.at(-1).close*.002),last15=C15.at(-1),mom=0;
-  if(r15>=52&&r15<=70&&m15.hist>0){mom=1;score+=15;reasons.push(`✓ 15m: RSI ${r15.toFixed(1)} + MACD bullish`)}else if(r15<=48&&r15>=30&&m15.hist<0){mom=-1;score-=15;reasons.push(`✓ 15m: RSI ${r15.toFixed(1)} + MACD bearish`)}else reasons.push(`○ 15m: momentum chưa đồng thuận (RSI ${r15.toFixed(1)})`);
+  let C15=closedCandles(data['15m']),H1=closedCandles(data['1h']),H4=closedCandles(data['4h']);
+  if(C15.length<210||H1.length<210||H4.length<210)return basicWait('NGẮN HẠN','Chưa đủ dữ liệu nến đã đóng ở 15m / 1H / 4H.');
+  let reasons=[],t4=emaTrend(H4),t1=emaTrend(H1),str=marketStructure(H1);
+  reasons.push(t4>0?'✓ 4H: xu hướng chính tăng (giá > EMA50 > EMA200)':t4<0?'✓ 4H: xu hướng chính giảm (giá < EMA50 < EMA200)':'○ 4H: xu hướng chính chưa rõ',t1>0?'✓ 1H: cấu trúc xu hướng tăng đồng thuận':t1<0?'✓ 1H: cấu trúc xu hướng giảm đồng thuận':'○ 1H: xu hướng chưa rõ',str>0?'✓ 1H: High/Low đang nâng dần':str<0?'✓ 1H: High/Low đang hạ dần':'○ 1H: cấu trúc giá đi ngang / chưa xác nhận');
+  let v15=C15.map(x=>x.close),r15=rsi(v15),m15=macd(v15),e20=ema(v15,20),e50=ema(v15,50),a15=safeAtr(C15,C15.at(-1).close*.002),last15=C15.at(-1),t15=0;
+  if(last15.close>e20&&r15>=52&&r15<72&&m15.hist>0){t15=1;reasons.push(`✓ 15m: timing LONG xác nhận (RSI ${r15.toFixed(1)}, MACD dương)`)}
+  else if(last15.close<e20&&r15<=48&&r15>28&&m15.hist<0){t15=-1;reasons.push(`✓ 15m: timing SHORT xác nhận (RSI ${r15.toFixed(1)}, MACD âm)`)}else reasons.push(`○ 15m: timing chưa đồng thuận (RSI ${r15.toFixed(1)})`);
   if(r15>72)reasons.push('⚠ 15m: RSI cao, tránh đuổi LONG');else if(r15<28)reasons.push('⚠ 15m: RSI thấp, tránh đuổi SHORT');
-  let v5=C5.map(x=>x.close),r5=rsi(v5),m5=macd(v5),e205=ema(v5,20),last5=C5.at(-1),trig=0;if(last5.close>e205&&r5>52&&m5.hist>0){trig=1;score+=10;reasons.push('✓ 5m: có xác nhận tăng ngắn hạn')}else if(last5.close<e205&&r5<48&&m5.hist<0){trig=-1;score-=10;reasons.push('✓ 5m: có xác nhận giảm ngắn hạn')}else reasons.push('○ 5m: chưa có trigger rõ');
-  let av=avgPrevVol(C15,20),vr=av?last15.volume/av:0;if(vr>=1.2){if(last15.close>last15.open){score+=5;reasons.push(`✓ Volume 15m mua tăng (${vr.toFixed(1)}x trung bình)`)}else if(last15.close<last15.open){score-=5;reasons.push(`✓ Volume 15m bán tăng (${vr.toFixed(1)}x trung bình)`)}}else reasons.push('○ Volume 15m chưa nổi bật');
-  let nearL=last15.close>=e20-.3*a15&&last15.close<=e20+.8*a15&&last15.close>e50,nearS=last15.close<=e20+.3*a15&&last15.close>=e20-.8*a15&&last15.close<e50;if(t4>0&&t1>0&&nearL){score+=10;reasons.push('✓ 15m: giá đang ở vùng pullback hợp lý quanh EMA20')}else if(t4<0&&t1<0&&nearS){score-=10;reasons.push('✓ 15m: giá đang ở vùng hồi hợp lý quanh EMA20')}
-  score=clamp(score,-100,100);let p=last15.close,su=rankSupports(mergeZones([buildSupport(H4,80,'4H',.4,'short'),buildSupport(H1,100,'1H',.32,'short'),buildSupport(C15,120,'15m',.25,'short'),buildSupport(C5,150,'5m',.2,'short')],'short',.28),p).slice(0,4),re=rankRes(mergeZones([buildResistance(H4,80,'4H',.4,'short'),buildResistance(H1,100,'1H',.32,'short'),buildResistance(C15,120,'15m',.25,'short'),buildResistance(C5,150,'5m',.2,'short')],'short',.28),p).slice(0,4);
+  // Trọng số Ngắn hạn: 4H 45% • 1H 35% • 15m 20%. Không dùng 5m trong engine.
+  let score=clamp(t4*45+t1*35+t15*20,-100,100);
+  let av=avgPrevVol(C15,20),vr=av?last15.volume/av:0;if(vr>=1.2){reasons.push(last15.close>=last15.open?`✓ Volume 15m mua tăng (${vr.toFixed(1)}x trung bình)`:`✓ Volume 15m bán tăng (${vr.toFixed(1)}x trung bình)`)}else reasons.push('○ Volume 15m chưa nổi bật');
+  let nearL=last15.close>=e20-.3*a15&&last15.close<=e20+.8*a15&&last15.close>e50,nearS=last15.close<=e20+.3*a15&&last15.close>=e20-.8*a15&&last15.close<e50;
+  if(t4>0&&t1>0&&nearL)reasons.push('✓ 15m: giá đang ở vùng pullback hợp lý quanh EMA20');else if(t4<0&&t1<0&&nearS)reasons.push('✓ 15m: giá đang ở vùng hồi hợp lý quanh EMA20');
+  let p=last15.close,su=rankSupports(mergeZones([buildSupport(H4,80,'4H',.4,'short'),buildSupport(H1,100,'1H',.32,'short'),buildSupport(C15,120,'15m',.25,'short')],'short',.28),p).slice(0,4),re=rankRes(mergeZones([buildResistance(H4,80,'4H',.4,'short'),buildResistance(H1,100,'1H',.32,'short'),buildResistance(C15,120,'15m',.25,'short')],'short',.28),p).slice(0,4);
   let ps=su[0],pr=re[0],s15=recentSupport(C15,20),r15level=recentResistance(C15,20),wll=Math.max(s15,e20-.5*a15),wlh=e20+.25*a15;if(wll>wlh)wll=e20-.25*a15;let wsl=e20-.25*a15,wsh=Math.min(r15level,e20+.5*a15);if(wsh<wsl)wsh=e20+.25*a15;
-  let conflict=t4&&t1&&t4!==t1,kind='WAIT';if(conflict){reasons.unshift('⚠ 4H và 1H xung đột → ưu tiên WAIT.')}else if(t4>0&&t1>0&&score>=65&&mom>0&&trig>0&&nearL&&r15<72)kind='LONG';else if(t4<0&&t1<0&&score<=-65&&mom<0&&trig<0&&nearS&&r15>28)kind='SHORT';else if(score>=40&&t4>=0&&t1>=0)kind='WATCH LONG';else if(score<=-40&&t4<=0&&t1<=0)kind='WATCH SHORT';
-  let out={kind,score,mode:'NGẮN HẠN',timeframes:`${tf('4H',t4)}   ${tf('1H',t1)}   ${tf('15m',mom)}   ${tf('5m',trig)}`,reasons:reasons.slice(0,9),supports:su,resistances:re,primarySupport:ps,primaryResistance:pr,ref:last15.close};
-  if(kind==='LONG'){let lo=Math.max(s15,e20-.25*a15),hi=e20+.2*a15;if(lo>hi)[lo,hi]=[hi,lo];let mid=(lo+hi)/2,sl=Math.min(s15,lo)-.35*a15,risk=mid-sl;if(risk>0)Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1:mid+1.5*risk,tp2:mid+2.5*risk,trigger:'Nến 5m duy trì trên EMA20 và RSI > 52',invalid:`Setup LONG mất hiệu lực nếu 15m đóng dưới khoảng ${fmt(sl)}.`});else out.kind='WATCH LONG'}
-  if(kind==='SHORT'){let hi=Math.min(r15level,e20+.25*a15),lo=e20-.2*a15;if(lo>hi)[lo,hi]=[hi,lo];let mid=(lo+hi)/2,sl=Math.max(r15level,hi)+.35*a15,risk=sl-mid;if(risk>0)Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1:mid-1.5*risk,tp2:mid-2.5*risk,trigger:'Nến 5m duy trì dưới EMA20 và RSI < 48',invalid:`Setup SHORT mất hiệu lực nếu 15m đóng trên khoảng ${fmt(sl)}.`});else out.kind='WATCH SHORT'}
-  if(out.kind==='WATCH LONG'){out.watchLow=wll;out.watchHigh=wlh;out.invalid=out.invalid||`Vùng canh yếu đi nếu 15m đóng dưới khoảng ${fmt(wll-.35*a15)}.`;out.hint=`CANH LONG quanh ${fmt(wll)} – ${fmt(wlh)} [15m]. Đây là vùng chờ, chưa phải Entry.`;out.breakout=`Breakout nhanh: chờ 15m đóng trên ${fmt(r15level)}, sau đó quan sát 5m retest/giữ vùng.`}
-  else if(out.kind==='WATCH SHORT'){out.watchLow=wsl;out.watchHigh=wsh;out.invalid=out.invalid||`Vùng canh yếu đi nếu 15m đóng trên khoảng ${fmt(wsh+.35*a15)}.`;out.hint=`CANH SHORT quanh ${fmt(wsl)} – ${fmt(wsh)} [15m]. Đây là vùng chờ, chưa phải Entry.`;out.breakout=`Breakdown nhanh: chờ 15m đóng dưới ${fmt(s15)}, sau đó quan sát 5m retest/giữ vùng.`}
+  let conflict=t4&&t1&&t4!==t1,kind='WAIT';if(conflict){reasons.unshift('⚠ 4H và 1H xung đột → ưu tiên WAIT.')}else if(t4>0&&t1>0&&t15>0&&nearL&&r15<72)kind='LONG';else if(t4<0&&t1<0&&t15<0&&nearS&&r15>28)kind='SHORT';else if(score>=45&&t4>0&&t1>=0)kind='WATCH LONG';else if(score<=-45&&t4<0&&t1<=0)kind='WATCH SHORT';
+  let out={kind,score,mode:'NGẮN HẠN',timeframes:`${tf('4H',t4)}   ${tf('1H',t1)}   ${tf('15m',t15)}`,reasons:reasons.slice(0,9),supports:su,resistances:re,primarySupport:ps,primaryResistance:pr,ref:last15.close};
+  if(kind==='LONG'){let lo=Math.max(s15,e20-.25*a15),hi=e20+.2*a15;if(lo>hi)[lo,hi]=[hi,lo];let mid=(lo+hi)/2,sl=Math.min(s15,lo)-.35*a15,risk=mid-sl;if(risk>0)Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1:mid+1.5*risk,tp2:mid+2.5*risk,trigger:'15m đóng trên EMA20, RSI > 52 và MACD dương',invalid:`Setup LONG mất hiệu lực nếu 15m đóng dưới khoảng ${fmt(sl)}.`});else out.kind='WATCH LONG'}
+  if(kind==='SHORT'){let hi=Math.min(r15level,e20+.25*a15),lo=e20-.2*a15;if(lo>hi)[lo,hi]=[hi,lo];let mid=(lo+hi)/2,sl=Math.max(r15level,hi)+.35*a15,risk=sl-mid;if(risk>0)Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1:mid-1.5*risk,tp2:mid-2.5*risk,trigger:'15m đóng dưới EMA20, RSI < 48 và MACD âm',invalid:`Setup SHORT mất hiệu lực nếu 15m đóng trên khoảng ${fmt(sl)}.`});else out.kind='WATCH SHORT'}
+  if(out.kind==='WATCH LONG'){out.watchLow=wll;out.watchHigh=wlh;out.invalid=out.invalid||`Vùng canh yếu đi nếu 15m đóng dưới khoảng ${fmt(wll-.35*a15)}.`;out.hint=`CANH LONG quanh ${fmt(wll)} – ${fmt(wlh)} [15m]. Đây là vùng chờ, chưa phải Entry.`;out.breakout=`Breakout nhanh: chờ 15m đóng trên ${fmt(r15level)}, sau đó chờ 15m retest/giữ vùng vừa phá.`}
+  else if(out.kind==='WATCH SHORT'){out.watchLow=wsl;out.watchHigh=wsh;out.invalid=out.invalid||`Vùng canh yếu đi nếu 15m đóng trên khoảng ${fmt(wsh+.35*a15)}.`;out.hint=`CANH SHORT quanh ${fmt(wsl)} – ${fmt(wsh)} [15m]. Đây là vùng chờ, chưa phải Entry.`;out.breakout=`Breakdown nhanh: chờ 15m đóng dưới ${fmt(s15)}, sau đó chờ 15m retest/giữ vùng vừa phá.`}
   else if(out.kind==='WAIT')out.hint=ps&&pr?`WAIT - hỗ trợ gần ${fmt(ps.low)}–${fmt(ps.high)} [${ps.frames.join('+')}] • kháng cự gần ${fmt(pr.low)}–${fmt(pr.high)} [${pr.frames.join('+')}].`:'WAIT - chưa có setup ngắn hạn rõ.';
   else out.hint=`${out.kind}: Entry ${fmt(out.entryLow)} – ${fmt(out.entryHigh)} | SL ${fmt(out.sl)} | TP1 ${fmt(out.tp1)}`;
   return out;
@@ -173,7 +178,7 @@ async function setChartTimeframe(tf){
 async function analyzeSelected(){
   renderSelectedTicker();els.hint.textContent='Đang tải dữ liệu Binance và phân tích...';els.refresh.disabled=true;
   try{
-    let analysisIntervals=state.mode==='swing'?['1M','1w','1d','12h','4h']:['5m','15m','1h','4h'];
+    let analysisIntervals=ANALYSIS_TIMEFRAMES[state.mode]||ANALYSIS_TIMEFRAMES.short;
     let intervals=[...new Set([...analysisIntervals,state.chartTf])];
     let data={};await Promise.all(intervals.map(async i=>{data[i]=await getKlines(state.selected,i,260)}));state.candles=data;
     let a=state.mode==='swing'?analyzeSwing(data):analyzeShort(data);renderAnalysis(a);updateTimeframeButtons();els.chartTitle.textContent=`${state.selected} • ${chartTfLabel(state.chartTf)}`;drawChart(data[state.chartTf],a);
