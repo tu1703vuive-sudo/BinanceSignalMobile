@@ -88,9 +88,9 @@ function buildSupport(c,lookback,tf,atrWidth,profile){return pivotZones(c,lookba
 function buildResistance(c,lookback,tf,atrWidth,profile){return pivotZones(c,lookback,tf,atrWidth,profile,'resistance',1)[0]}
 function buildSupportZones(c,lookback,tf,atrWidth,profile,maxCount=2){return pivotZones(c,lookback,tf,atrWidth,profile,'support',maxCount)}
 function buildResistanceZones(c,lookback,tf,atrWidth,profile,maxCount=2){return pivotZones(c,lookback,tf,atrWidth,profile,'resistance',maxCount)}
-function buildWickResistanceZones4H(c,lookback=28,maxZones=2){
-  let subset=closedCandles(c).slice(-Math.min(lookback,c.length));
-  if(!subset.length)return[];
+function wickResistanceClusters4H(c,lookback){
+  let all=closedCandles(c),subset=all.slice(-Math.min(lookback,all.length));
+  if(!subset.length)return{zones:[],ref:0,atr:0,tol:0};
   let ref=subset.at(-1).close,a=safeAtr(subset,Math.max(ref*.008,1e-8));
   let tol=Math.max(a*.22,ref*.0012),pad=Math.max(a*.07,ref*.00035);
   let pts=[];
@@ -102,8 +102,8 @@ function buildWickResistanceZones4H(c,lookback=28,maxZones=2){
     pts.push({price:x.high,wick,wickRatio:wick/range,age:subset.length-1-i});
   });
   if(!pts.length){
-    let hi=recentResistance(subset,subset.length);
-    return [Object.assign(zone(Math.max(ref,hi-pad),hi+pad,'short','4H'),{touches:1,wickScore:0,source:'4H Wick Cluster'})];
+    let hi=recentResistance(subset,subset.length),z=Object.assign(zone(Math.max(ref,hi-pad),hi+pad,'short','4H'),{touches:1,wickScore:0,rankScore:1,source:'4H Wick Cluster',lookback});
+    return{zones:[z],ref,atr:a,tol};
   }
   pts.sort((a,b)=>a.price-b.price);
   let clusters=[];
@@ -118,16 +118,33 @@ function buildWickResistanceZones4H(c,lookback=28,maxZones=2){
     let touches=c0.items.length,wickScore=c0.items.reduce((s,x)=>s+x.wickRatio,0);
     let recency=c0.items.reduce((s,x)=>s+1/(1+x.age*.08),0);
     let z=zone(Math.max(0,Math.min(...prices)-pad),Math.max(...prices)+pad,'short','4H');
-    z.touches=touches;z.wickScore=wickScore;z.center=center;z.rankScore=touches*100+wickScore*18+recency*3;z.source='4H Wick Cluster';
+    z.touches=touches;z.wickScore=wickScore;z.center=center;z.rankScore=touches*100+wickScore*18+recency*3;z.source='4H Wick Cluster';z.lookback=lookback;
     return z;
   }).filter(z=>z.high>=ref-a*.10);
   zones.sort((a,b)=>b.rankScore-a.rankScore||Math.abs(a.mid-ref)-Math.abs(b.mid-ref));
-  let picked=[];
-  for(let z of zones){
-    if(picked.some(q=>Math.abs(q.mid-z.mid)<tol*1.4))continue;
-    picked.push(z);if(picked.length>=maxZones)break;
+  return{zones,ref,atr:a,tol};
+}
+function buildWickResistanceR1R2(c,r1Lookback=36,r2Lookback=72){
+  let r1Data=wickResistanceClusters4H(c,r1Lookback),r2Data=wickResistanceClusters4H(c,r2Lookback);
+  let ref=r1Data.ref||r2Data.ref,atr4=Math.max(r1Data.atr||0,r2Data.atr||0,ref*.001),minGap=Math.max(atr4*.75,ref*.0025);
+  let r1Candidates=r1Data.zones.filter(z=>z.mid>=ref-atr4*.10);
+  let r1=(r1Candidates.length?r1Candidates:r1Data.zones)[0];
+  if(!r1)return[];
+  r1.label='R1';r1.lookback=r1Lookback;
+  let r2Candidates=r2Data.zones.filter(z=>{
+    let overlap=!(z.low>r1.high||z.high<r1.low);
+    let farEnough=z.mid>=r1.mid+minGap;
+    return !overlap&&farEnough&&z.mid>ref;
+  });
+  let r2=r2Candidates[0];
+  if(!r2){
+    r2=r2Data.zones.find(z=>{
+      let overlap=!(z.low>r1.high||z.high<r1.low);
+      return !overlap&&z.mid>r1.mid&&z.mid>ref;
+    });
   }
-  return picked.sort((a,b)=>a.mid-b.mid);
+  if(r2){r2.label='R2';r2.lookback=r2Lookback;return[r1,r2].sort((a,b)=>a.mid-b.mid)}
+  return[r1];
 }
 const frameOrder={'1M':0,'1W':1,'1D':2,'12H':3,'4H':4,'1H':5,'15m':6};
 function mergeZones(zones,profile,tolFactor){let sorted=[...zones].sort((a,b)=>a.low-b.low),m=[];for(let z of sorted){if(!m.length){m.push(z);continue}let last=m.at(-1),tol=Math.max(Math.max(last.high-last.low,1e-8),Math.max(z.high-z.low,1e-8))*tolFactor;if(z.low<=last.high+tol){let fr=[...new Set([...last.frames,...z.frames])].sort((a,b)=>(frameOrder[a]??9)-(frameOrder[b]??9));m[m.length-1]=zone(Math.min(last.low,z.low),Math.max(last.high,z.high),profile,...fr)}else m.push(z)}return m}
@@ -193,8 +210,8 @@ function analyzeShort(data){
     ...buildSupportZones(H4,80,'4H',.4,'short',2),
     ...buildSupportZones(H1,100,'1H',.32,'short',2),
     ...buildSupportZones(C15,120,'15m',.25,'short',1)
-  ],'short',.24),p).slice(0,4),re=buildWickResistanceZones4H(H4,28,2);
-  reasons.push(`✓ Kháng cự: quét 28 nến 4H, chọn 2 cụm có nhiều râu nến chạm nhất${re[0]?.touches?` (${re.map(z=>z.touches+' râu').join(' / ')})`:''}`);
+  ],'short',.24),p).slice(0,4),re=buildWickResistanceR1R2(H4,36,72);
+  reasons.push(`✓ Kháng cự 4H: R1 quét 36 nến, R2 quét 72 nến${re[0]?.touches?` • ${re.map(z=>(z.label||'R')+': '+z.touches+' râu').join(' / ')}`:''}`);
   let ps=nearestSupport(su,p),pr=nearestResistance(re,p),s15=recentSupport(C15,20),r15level=recentResistance(C15,20),wll=Math.max(s15,e20-.5*a15),wlh=e20+.25*a15;if(wll>wlh)wll=e20-.25*a15;let wsl=e20-.25*a15,wsh=Math.min(r15level,e20+.5*a15);if(wsh<wsl)wsh=e20+.25*a15;
   let conflict=t4&&t1&&t4!==t1,kind='WAIT';if(conflict){reasons.unshift('⚠ 4H và 1H xung đột → ưu tiên WAIT.')}else if(t4>0&&t1>0&&t15>0&&nearL&&r15<72)kind='LONG';else if(t4<0&&t1<0&&t15<0&&nearS&&r15>28)kind='SHORT';else if(score>=45&&t4>0&&t1>=0)kind='WATCH LONG';else if(score<=-45&&t4<0&&t1<=0)kind='WATCH SHORT';
   let out={kind,score,mode:'NGẮN HẠN',timeframes:`${tf('4H',t4)}   ${tf('1H',t1)}   ${tf('15m',t15)}`,reasons:reasons.slice(0,9),supports:su,resistances:re,primarySupport:ps,primaryResistance:pr,ref:last15.close};
@@ -233,7 +250,7 @@ function renderAnalysis(a){
   state.analysis=a;els.mode.textContent=a.mode;els.badge.textContent=a.kind;els.badge.className=`signal ${signalClass(a.kind)}`;els.score.textContent=`Score ${a.score>=0?'+':''}${a.score}`;els.tf.textContent=a.timeframes;els.hint.textContent=a.hint||'--';els.updated.textContent=new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
   els.entry.textContent=a.entryLow!=null?`${fmt(a.entryLow)} – ${fmt(a.entryHigh)}`:(a.watchLow!=null?`Canh ${fmt(a.watchLow)} – ${fmt(a.watchHigh)}`:'--');els.sl.textContent=fmt(a.sl);els.tp1.textContent=fmt(a.tp1);els.tp2.textContent=fmt(a.tp2);els.tp3.textContent=fmt(a.tp3);els.invalid.textContent=a.invalid||'--';els.trigger.textContent=a.trigger||'';els.breakout.textContent=a.breakout||'';
   els.supports.innerHTML=(a.supports||[]).map(z=>`<div class="level"><strong>${fmt(z.low)} – ${fmt(z.high)}</strong><small>${z.frames.join('+')} • ${z.strength}</small></div>`).join('')||'<div class="muted">--</div>';
-  els.resistances.innerHTML=(a.resistances||[]).map(z=>`<div class="level"><strong>${fmt(z.low)} – ${fmt(z.high)}</strong><small>${z.frames.join('+')} • ${z.strength}${z.touches?` • ${z.touches} râu`:''}</small></div>`).join('')||'<div class="muted">--</div>';
+  els.resistances.innerHTML=(a.resistances||[]).map(z=>`<div class="level"><strong>${z.label?z.label+' • ':''}${fmt(z.low)} – ${fmt(z.high)}</strong><small>${z.frames.join('+')} • ${z.strength}${z.touches?` • ${z.touches} râu`:''}${z.lookback?` • ${z.lookback} nến`:''}</small></div>`).join('')||'<div class="muted">--</div>';
   els.reasons.innerHTML=(a.reasons||[]).map(r=>`<div class="reason">${escapeHtml(r)}</div>`).join('');
 }
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
