@@ -24,8 +24,8 @@
   <main class="shell">
     <section class="toolbar card">
       <div class="segmented" role="tablist">
-        <button id="modeSwing" class="seg-btn active" data-mode="swing">Swing / Position</button>
-        <button id="modeShort" class="seg-btn" data-mode="short">Short Term</button>
+        <button id="modeSwing" class="seg-btn active" data-mode="swing">Dài hạn</button>
+        <button id="modeShort" class="seg-btn" data-mode="short">Ngắn hạn</button>
       </div>
       <div class="toolbar-row">
         <input id="symbolInput" inputmode="latin" autocomplete="off" placeholder="VD: XRPUSDT" maxlength="20" />
@@ -45,7 +45,7 @@
           <div class="hero-head">
             <div>
               <div id="selectedSymbol" class="symbol">BTCUSDT</div>
-              <div id="modeLabel" class="muted">SWING / POSITION</div>
+              <div id="modeLabel" class="muted">DÀI HẠN</div>
             </div>
             <div class="price-block">
               <div id="selectedPrice" class="price">--</div>
@@ -66,6 +66,15 @@
 
         <div class="chart-card card">
           <div class="section-title"><span id="chartTitle">Biểu đồ</span><span id="updatedAt" class="muted"></span></div>
+          <div id="timeframeSelector" class="timeframe-selector" aria-label="Khung thời gian biểu đồ">
+            <button class="tf-btn" data-tf="15m">15m</button>
+            <button class="tf-btn" data-tf="1h">1h</button>
+            <button class="tf-btn" data-tf="4h">4h</button>
+            <button class="tf-btn" data-tf="12h">12h</button>
+            <button class="tf-btn" data-tf="1d">1d</button>
+            <button class="tf-btn" data-tf="1w">1w</button>
+            <button class="tf-btn" data-tf="1M">1M</button>
+          </div>
           <canvas id="chartCanvas" width="1200" height="480"></canvas>
         </div>
 
