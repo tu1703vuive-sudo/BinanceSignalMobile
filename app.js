@@ -62,25 +62,32 @@ function getPivotLevels(c,lookback,kind,tf){
   }
   return out;
 }
-function pickZoneFromPivots(c,lookback,tf,atrWidth,profile,kind){
+function pivotZones(c,lookback,tf,atrWidth,profile,kind,maxCount=1){
   let subset=c.slice(-Math.min(lookback,c.length)), ref=subset.at(-1)?.close||c.at(-1)?.close||0;
   let a=safeAtr(subset,Math.max(ref*.01,1e-8)), mr=profile==='swing'?.0016:.00065, width=Math.max(a*atrWidth*.72,Math.max(ref*mr,1e-8));
   let pivots=getPivotLevels(c,lookback,kind,tf).map(x=>x.price);
   let baseline=kind==='support'?recentSupport(subset,subset.length):recentResistance(subset,subset.length);
   if(!pivots.length) pivots=[baseline];
   let sameSide=kind==='support'?pivots.filter(v=>v<=ref):pivots.filter(v=>v>=ref);
-  let usable=(sameSide.length?sameSide:pivots);
-  let anchor=kind==='support'?Math.max(...usable):Math.min(...usable);
-  let cluster=usable.filter(v=>Math.abs(v-anchor)<=a*.35);
-  if(!cluster.length) cluster=[anchor];
-  let low=Math.min(...cluster), high=Math.max(...cluster);
-  if(kind==='support') return zone(low,Math.max(high,anchor+width*.55),profile,tf);
-  return zone(Math.max(0,Math.min(low,anchor-width*.55)),high,profile,tf);
+  let usable=(sameSide.length?sameSide:pivots).sort((x,y)=>kind==='support'?y-x:x-y);
+  let zones=[];
+  for(let anchor of usable){
+    if(zones.some(z=>Math.abs(z.mid-anchor)<=a*.45)) continue;
+    let cluster=usable.filter(v=>Math.abs(v-anchor)<=a*.35);
+    if(!cluster.length) cluster=[anchor];
+    let low=Math.min(...cluster), high=Math.max(...cluster);
+    let z=kind==='support'?zone(low,Math.max(high,anchor+width*.55),profile,tf):zone(Math.max(0,Math.min(low,anchor-width*.55)),high,profile,tf);
+    zones.push(z);
+    if(zones.length>=maxCount) break;
+  }
+  return zones.length?zones:[kind==='support'?zone(baseline,baseline+width,profile,tf):zone(Math.max(0,baseline-width),baseline,profile,tf)];
 }
 function strength(frames,profile){let s=new Set(frames);if(profile==='swing'){if(s.has('1M')||(s.has('1W')&&s.size>=2)||(s.has('1D')&&(s.has('12H')||s.has('4H'))))return'VERY STRONG';if(s.has('1W')||s.has('1D'))return'MAJOR';if(s.size>=2||s.has('12H'))return'STRONG';return s.has('4H')?'MEDIUM':'SWING'}if(s.has('4H')&&s.has('1H'))return'VERY STRONG';if(s.size>=2||(s.has('1H')&&s.has('15m')))return'STRONG';if(s.has('4H')||s.has('1H'))return'MEDIUM';return'SHORT TERM'}
 function zone(low,high,profile,...frames){let fr=[...new Set(frames)];return{low:Math.min(low,high),high:Math.max(low,high),frames:fr,strength:strength(fr,profile),get mid(){return(this.low+this.high)/2}}}
-function buildSupport(c,lookback,tf,atrWidth,profile){return pickZoneFromPivots(c,lookback,tf,atrWidth,profile,'support')}
-function buildResistance(c,lookback,tf,atrWidth,profile){return pickZoneFromPivots(c,lookback,tf,atrWidth,profile,'resistance')}
+function buildSupport(c,lookback,tf,atrWidth,profile){return pivotZones(c,lookback,tf,atrWidth,profile,'support',1)[0]}
+function buildResistance(c,lookback,tf,atrWidth,profile){return pivotZones(c,lookback,tf,atrWidth,profile,'resistance',1)[0]}
+function buildSupportZones(c,lookback,tf,atrWidth,profile,maxCount=2){return pivotZones(c,lookback,tf,atrWidth,profile,'support',maxCount)}
+function buildResistanceZones(c,lookback,tf,atrWidth,profile,maxCount=2){return pivotZones(c,lookback,tf,atrWidth,profile,'resistance',maxCount)}
 const frameOrder={'1M':0,'1W':1,'1D':2,'12H':3,'4H':4,'1H':5,'15m':6};
 function mergeZones(zones,profile,tolFactor){let sorted=[...zones].sort((a,b)=>a.low-b.low),m=[];for(let z of sorted){if(!m.length){m.push(z);continue}let last=m.at(-1),tol=Math.max(Math.max(last.high-last.low,1e-8),Math.max(z.high-z.low,1e-8))*tolFactor;if(z.low<=last.high+tol){let fr=[...new Set([...last.frames,...z.frames])].sort((a,b)=>(frameOrder[a]??9)-(frameOrder[b]??9));m[m.length-1]=zone(Math.min(last.low,z.low),Math.max(last.high,z.high),profile,...fr)}else m.push(z)}return m}
 function rankSupports(z,p){return [...z].sort((a,b)=>{let ac=a.high<=p?0:(a.low<=p?1:2),bc=b.high<=p?0:(b.low<=p?1:2);return ac-bc||Math.abs(p-a.mid)-Math.abs(p-b.mid)})}
@@ -141,7 +148,15 @@ function analyzeShort(data){
   let av=avgPrevVol(C15,20),vr=av?last15.volume/av:0;if(vr>=1.2){reasons.push(last15.close>=last15.open?`✓ Volume 15m mua tăng (${vr.toFixed(1)}x trung bình)`:`✓ Volume 15m bán tăng (${vr.toFixed(1)}x trung bình)`)}else reasons.push('○ Volume 15m chưa nổi bật');
   let nearL=last15.close>=e20-.3*a15&&last15.close<=e20+.8*a15&&last15.close>e50,nearS=last15.close<=e20+.3*a15&&last15.close>=e20-.8*a15&&last15.close<e50;
   if(t4>0&&t1>0&&nearL)reasons.push('✓ 15m: giá đang ở vùng pullback hợp lý quanh EMA20');else if(t4<0&&t1<0&&nearS)reasons.push('✓ 15m: giá đang ở vùng hồi hợp lý quanh EMA20');
-  let p=last15.close,su=rankSupports(mergeZones([buildSupport(H4,80,'4H',.4,'short'),buildSupport(H1,100,'1H',.32,'short'),buildSupport(C15,120,'15m',.25,'short')],'short',.28),p).slice(0,4),re=rankRes(mergeZones([buildResistance(H4,80,'4H',.4,'short'),buildResistance(H1,100,'1H',.32,'short'),buildResistance(C15,120,'15m',.25,'short')],'short',.28),p).slice(0,4);
+  let p=last15.close,su=rankSupports(mergeZones([
+    ...buildSupportZones(H4,80,'4H',.4,'short',2),
+    ...buildSupportZones(H1,100,'1H',.32,'short',2),
+    ...buildSupportZones(C15,120,'15m',.25,'short',1)
+  ],'short',.24),p).slice(0,4),re=rankRes(mergeZones([
+    ...buildResistanceZones(H4,80,'4H',.4,'short',2),
+    ...buildResistanceZones(H1,100,'1H',.32,'short',2),
+    ...buildResistanceZones(C15,120,'15m',.25,'short',1)
+  ],'short',.24),p).slice(0,4);
   let ps=nearestSupport(su,p),pr=nearestResistance(re,p),s15=recentSupport(C15,20),r15level=recentResistance(C15,20),wll=Math.max(s15,e20-.5*a15),wlh=e20+.25*a15;if(wll>wlh)wll=e20-.25*a15;let wsl=e20-.25*a15,wsh=Math.min(r15level,e20+.5*a15);if(wsh<wsl)wsh=e20+.25*a15;
   let conflict=t4&&t1&&t4!==t1,kind='WAIT';if(conflict){reasons.unshift('⚠ 4H và 1H xung đột → ưu tiên WAIT.')}else if(t4>0&&t1>0&&t15>0&&nearL&&r15<72)kind='LONG';else if(t4<0&&t1<0&&t15<0&&nearS&&r15>28)kind='SHORT';else if(score>=45&&t4>0&&t1>=0)kind='WATCH LONG';else if(score<=-45&&t4<0&&t1<=0)kind='WATCH SHORT';
   let out={kind,score,mode:'NGẮN HẠN',timeframes:`${tf('4H',t4)}   ${tf('1H',t1)}   ${tf('15m',t15)}`,reasons:reasons.slice(0,9),supports:su,resistances:re,primarySupport:ps,primaryResistance:pr,ref:last15.close};
@@ -149,7 +164,7 @@ function analyzeShort(data){
   if(kind==='SHORT'){let hi=Math.min(r15level,e20+.25*a15),lo=e20-.2*a15;if(lo>hi)[lo,hi]=[hi,lo];let mid=(lo+hi)/2,sl=Math.max(r15level,hi)+.35*a15,risk=sl-mid;if(risk>0)Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1:mid-1.5*risk,tp2:mid-2.5*risk,trigger:'15m đóng dưới EMA20, RSI < 48 và MACD âm',invalid:`Setup SHORT mất hiệu lực nếu 15m đóng trên khoảng ${fmt(sl)}.`});else out.kind='WATCH SHORT'}
   if(out.kind==='WATCH LONG'){out.watchLow=wll;out.watchHigh=wlh;out.invalid=out.invalid||`Vùng canh yếu đi nếu 15m đóng dưới khoảng ${fmt(wll-.35*a15)}.`;out.hint=`CANH LONG quanh ${fmt(wll)} – ${fmt(wlh)} [15m]. Đây là vùng chờ, chưa phải Entry.`;out.breakout=`Breakout nhanh: chờ 15m đóng trên ${fmt(r15level)}, sau đó chờ 15m retest/giữ vùng vừa phá.`}
   else if(out.kind==='WATCH SHORT'){out.watchLow=wsl;out.watchHigh=wsh;out.invalid=out.invalid||`Vùng canh yếu đi nếu 15m đóng trên khoảng ${fmt(wsh+.35*a15)}.`;out.hint=`CANH SHORT quanh ${fmt(wsl)} – ${fmt(wsh)} [15m]. Đây là vùng chờ, chưa phải Entry.`;out.breakout=`Breakdown nhanh: chờ 15m đóng dưới ${fmt(s15)}, sau đó chờ 15m retest/giữ vùng vừa phá.`}
-  else if(out.kind==='WAIT')out.hint=ps&&pr?`WAIT - hỗ trợ gần ${fmt(ps.low)}–${fmt(ps.high)} [${ps.frames.join('+')}] • kháng cự gần ${fmt(pr.low)}–${fmt(pr.high)} [${pr.frames.join('+')}].`:'WAIT - chưa có setup ngắn hạn rõ.';
+  else if(out.kind==='WAIT'){let nextR=(re||[]).find(z=>z!==pr&&z.low>=(pr?.high??0));let nextS=(su||[]).find(z=>z!==ps&&z.high<=(ps?.low??Infinity));out.hint=ps&&pr?`WAIT - hỗ trợ gần ${fmt(ps.low)}–${fmt(ps.high)} [${ps.frames.join('+')}] • kháng cự gần ${fmt(pr.low)}–${fmt(pr.high)} [${pr.frames.join('+')}]${nextR?` • kháng cự kế tiếp ${fmt(nextR.low)}–${fmt(nextR.high)} [${nextR.frames.join('+')}]`:''}.`:'WAIT - chưa có setup ngắn hạn rõ.';}
   else out.hint=`${out.kind}: Entry ${fmt(out.entryLow)} – ${fmt(out.entryHigh)} | SL ${fmt(out.sl)} | TP1 ${fmt(out.tp1)}`;
   return out;
 }
@@ -225,7 +240,9 @@ function drawChart(candles,a){
   let pad={l:10,r:68,t:12,b:18},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,xstep=cw/data.length,scaleY=v=>pad.t+(hi-v)/(hi-lo)*ch;
   ctx.strokeStyle='#25364a';ctx.lineWidth=1.1;for(let i=0;i<5;i++){let y=pad.t+i*ch/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();let val=hi-(hi-lo)*i/4;ctx.fillStyle='#c8d4e4';ctx.font='11px -apple-system,BlinkMacSystemFont,sans-serif';ctx.fillText(fmt(val),w-pad.r+5,y+4)}
   function band(z,fill,stroke){if(!z)return;let y1=scaleY(z.high),y2=scaleY(z.low),bh=Math.max(3,y2-y1);ctx.fillStyle=fill;ctx.fillRect(pad.l,y1,cw,bh);ctx.strokeStyle=stroke;ctx.lineWidth=1.35;ctx.strokeRect(pad.l+.5,y1+.5,cw-1,Math.max(1,bh-1));ctx.beginPath();ctx.moveTo(pad.l,y1);ctx.lineTo(pad.l+cw,y1);ctx.moveTo(pad.l,y2);ctx.lineTo(pad.l+cw,y2);ctx.stroke()}
-  band(a.primarySupport,'rgba(0,255,163,.18)','rgba(20,255,170,.92)');band(a.primaryResistance,'rgba(255,78,110,.18)','rgba(255,98,126,.92)');
+  let supportZones=(a.supports||[]).slice(0,2), resistanceZones=(a.resistances||[]).slice(0,2);
+  supportZones.forEach((z,i)=>band(z,i===0?'rgba(0,255,163,.18)':'rgba(0,255,163,.10)',i===0?'rgba(20,255,170,.92)':'rgba(20,255,170,.55)'));
+  resistanceZones.forEach((z,i)=>band(z,i===0?'rgba(255,78,110,.18)':'rgba(255,78,110,.10)',i===0?'rgba(255,98,126,.92)':'rgba(255,98,126,.55)'));
   data.forEach((c,i)=>{let x=pad.l+i*xstep+xstep*.5,yo=scaleY(c.open),yc=scaleY(c.close),yh=scaleY(c.high),yl=scaleY(c.low),up=c.close>=c.open,color=up?'#19ffb2':'#ff5b78';
     ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=Math.max(2.2,Math.min(3.2,xstep*.28));ctx.beginPath();ctx.moveTo(x,yh);ctx.lineTo(x,yl);ctx.stroke();
     let bw=Math.max(6,Math.min(12,xstep*.78)),top=Math.min(yo,yc),bh=Math.max(4,Math.abs(yc-yo));
