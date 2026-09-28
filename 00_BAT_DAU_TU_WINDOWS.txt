@@ -1,0 +1,9 @@
+BẠN CHỈ CẦN LÀM 2 VIỆC SAU KHI CÓ IPA:
+
+1) Cài Sideloadly trên Windows và kết nối iPhone bằng cáp.
+2) Kéo file .ipa vào Sideloadly -> nhập Apple ID của bạn -> Start.
+
+Nếu iPhone yêu cầu Developer Mode:
+Cài đặt -> Quyền riêng tư & Bảo mật -> Developer Mode -> Bật.
+
+Lưu ý: Apple ID miễn phí cần ký lại app khoảng mỗi 7 ngày.

@@ -1,0 +1,14 @@
+BINANCE PRICE WIDGET V3.1.4 FULL FIX - VALIDATION
+=================================================
+
+Static checks completed in the build workspace:
+- All project/XAML XML files parsed successfully.
+- All 26 MainWindow XAML event handlers were found in MainWindow.xaml.cs.
+- All C# files passed lexical bracket/string/comment balance checks.
+- TP ordering sanity cases passed for LONG and SHORT with 0/1/multiple S/R candidates.
+- Version remains 3.1.4; Product label updated to V3.1.4 Full Fixed.
+- publish.bat label corrected from V3.1.3 to V3.1.4 Full Fixed.
+
+Important environment note:
+- The current build workspace does not have the .NET 10 SDK, so a real dotnet build/publish could not be executed here.
+- On Windows with .NET 10 SDK installed, run publish.bat to create the self-contained win-x64 EXE.
