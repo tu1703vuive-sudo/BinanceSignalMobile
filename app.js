@@ -124,27 +124,57 @@ function wickResistanceClusters4H(c,lookback){
   zones.sort((a,b)=>b.rankScore-a.rankScore||Math.abs(a.mid-ref)-Math.abs(b.mid-ref));
   return{zones,ref,atr:a,tol};
 }
-function buildWickResistanceR1R2(c,r1Lookback=36,r2Lookback=72){
-  let r1Data=wickResistanceClusters4H(c,r1Lookback),r2Data=wickResistanceClusters4H(c,r2Lookback);
-  let ref=r1Data.ref||r2Data.ref,atr4=Math.max(r1Data.atr||0,r2Data.atr||0,ref*.001),minGap=Math.max(atr4*.75,ref*.0025);
-  let r1Candidates=r1Data.zones.filter(z=>z.mid>=ref-atr4*.10);
-  let r1=(r1Candidates.length?r1Candidates:r1Data.zones)[0];
-  if(!r1)return[];
-  r1.label='R1';r1.lookback=r1Lookback;
-  let r2Candidates=r2Data.zones.filter(z=>{
-    let overlap=!(z.low>r1.high||z.high<r1.low);
-    let farEnough=z.mid>=r1.mid+minGap;
-    return !overlap&&farEnough&&z.mid>ref;
-  });
-  let r2=r2Candidates[0];
-  if(!r2){
-    r2=r2Data.zones.find(z=>{
-      let overlap=!(z.low>r1.high||z.high<r1.low);
-      return !overlap&&z.mid>r1.mid&&z.mid>ref;
+function buildAdaptiveWickResistanceR1R2(c){
+  let all=closedCandles(c); if(!all.length) return [];
+  let ref=all.at(-1).close, atr4=safeAtr(all.slice(-30), Math.max(ref*.008,1e-8));
+  let scanWindows=[]; for(let w=18; w<=160; w+=6) scanWindows.push(w);
+  let pool=[];
+  for(let w of scanWindows){
+    let data=wickResistanceClusters4H(c,w);
+    (data.zones||[]).forEach(z=>{
+      if(z.mid<=ref) return;
+      let key=pool.find(p=>Math.abs(p.mid-z.mid)<=Math.max(atr4*.55, ref*.0018));
+      if(!key){
+        pool.push({low:z.low,high:z.high,mid:z.mid,touches:z.touches||1,wickScore:z.wickScore||0,scanHits:1,minLookback:w,maxLookback:w,source:'4H Adaptive Wick'});
+      }else{
+        key.low=Math.min(key.low,z.low); key.high=Math.max(key.high,z.high); key.mid=(key.low+key.high)/2;
+        key.touches=Math.max(key.touches,z.touches||1); key.wickScore=Math.max(key.wickScore,z.wickScore||0); key.scanHits+=1; key.maxLookback=w;
+      }
     });
+    let current=pool.filter(z=>z.touches>=2 && z.mid>ref).sort((a,b)=>a.mid-b.mid);
+    let minGap=Math.max(atr4*.9, ref*.003);
+    if(current.length>=2){
+      let r1c=current[0];
+      let r2c=current.find(z=>z.mid>=r1c.mid+minGap && z.low>r1c.high-atr4*.15);
+      if(r1c && r2c && w>=42) break;
+    }
   }
-  if(r2){r2.label='R2';r2.lookback=r2Lookback;return[r1,r2].sort((a,b)=>a.mid-b.mid)}
-  return[r1];
+  if(!pool.length){
+    let hi=recentResistance(all,30), pad=Math.max(atr4*.12, ref*.0004); return [Object.assign(zone(Math.max(ref,hi-pad),hi+pad,'short','4H'),{label:'R1',touches:1,lookbackUsed:30,source:'4H Adaptive Wick'})];
+  }
+  let candidates=pool.filter(z=>z.mid>ref).map(z=>{
+    let dist=Math.max(0,(z.mid-ref)/Math.max(atr4,1e-8));
+    z.rankScore=(z.touches||1)*90 + (z.scanHits||1)*18 + (z.wickScore||0)*14 - dist*6;
+    return z;
+  }).sort((a,b)=> b.rankScore-a.rankScore || a.mid-b.mid);
+  if(!candidates.length) candidates=pool.sort((a,b)=>a.mid-b.mid);
+  let nearestSorted=[...candidates].sort((a,b)=>a.mid-b.mid);
+  let r1=nearestSorted.find(z=>z.touches>=2) || nearestSorted[0] || candidates[0];
+  if(!r1) return [];
+  let minGap=Math.max(atr4*.9, ref*.003);
+  let r2=candidates.filter(z=>z!==r1 && z.mid>=r1.mid+minGap && z.low>r1.high-atr4*.15)
+                   .sort((a,b)=>b.rankScore-a.rankScore || a.mid-b.mid)[0];
+  if(!r2){
+    r2=nearestSorted.find(z=>z!==r1 && z.mid>r1.mid+minGap/2);
+  }
+  let out=[];
+  let z1=Object.assign(zone(r1.low,r1.high,'short','4H'),{label:'R1',touches:r1.touches||1,lookbackUsed:r1.maxLookback||r1.minLookback||30,scanHits:r1.scanHits||1,source:'4H Adaptive Wick'});
+  out.push(z1);
+  if(r2){
+    let z2=Object.assign(zone(r2.low,r2.high,'short','4H'),{label:'R2',touches:r2.touches||1,lookbackUsed:r2.maxLookback||r2.minLookback||60,scanHits:r2.scanHits||1,source:'4H Adaptive Wick'});
+    out.push(z2);
+  }
+  return out.sort((a,b)=>a.mid-b.mid);
 }
 const frameOrder={'1M':0,'1W':1,'1D':2,'12H':3,'4H':4,'1H':5,'15m':6};
 function mergeZones(zones,profile,tolFactor){let sorted=[...zones].sort((a,b)=>a.low-b.low),m=[];for(let z of sorted){if(!m.length){m.push(z);continue}let last=m.at(-1),tol=Math.max(Math.max(last.high-last.low,1e-8),Math.max(z.high-z.low,1e-8))*tolFactor;if(z.low<=last.high+tol){let fr=[...new Set([...last.frames,...z.frames])].sort((a,b)=>(frameOrder[a]??9)-(frameOrder[b]??9));m[m.length-1]=zone(Math.min(last.low,z.low),Math.max(last.high,z.high),profile,...fr)}else m.push(z)}return m}
@@ -210,8 +240,8 @@ function analyzeShort(data){
     ...buildSupportZones(H4,80,'4H',.4,'short',2),
     ...buildSupportZones(H1,100,'1H',.32,'short',2),
     ...buildSupportZones(C15,120,'15m',.25,'short',1)
-  ],'short',.24),p).slice(0,4),re=buildWickResistanceR1R2(H4,36,72);
-  reasons.push(`✓ Kháng cự 4H: R1 quét 36 nến, R2 quét 72 nến${re[0]?.touches?` • ${re.map(z=>(z.label||'R')+': '+z.touches+' râu').join(' / ')}`:''}`);
+  ],'short',.24),p).slice(0,4),re=buildAdaptiveWickResistanceR1R2(H4);
+  reasons.push(`✓ Kháng cự 4H: quét thích ứng theo cụm râu nến${re[0]?.touches?` • ${re.map(z=>(z.label||'R')+': '+z.touches+' râu / '+(z.lookbackUsed||0)+' nến').join(' / ')}`:''}`);
   let ps=nearestSupport(su,p),pr=nearestResistance(re,p),s15=recentSupport(C15,20),r15level=recentResistance(C15,20),wll=Math.max(s15,e20-.5*a15),wlh=e20+.25*a15;if(wll>wlh)wll=e20-.25*a15;let wsl=e20-.25*a15,wsh=Math.min(r15level,e20+.5*a15);if(wsh<wsl)wsh=e20+.25*a15;
   let conflict=t4&&t1&&t4!==t1,kind='WAIT';if(conflict){reasons.unshift('⚠ 4H và 1H xung đột → ưu tiên WAIT.')}else if(t4>0&&t1>0&&t15>0&&nearL&&r15<72)kind='LONG';else if(t4<0&&t1<0&&t15<0&&nearS&&r15>28)kind='SHORT';else if(score>=45&&t4>0&&t1>=0)kind='WATCH LONG';else if(score<=-45&&t4<0&&t1<=0)kind='WATCH SHORT';
   let out={kind,score,mode:'NGẮN HẠN',timeframes:`${tf('4H',t4)}   ${tf('1H',t1)}   ${tf('15m',t15)}`,reasons:reasons.slice(0,9),supports:su,resistances:re,primarySupport:ps,primaryResistance:pr,ref:last15.close};
