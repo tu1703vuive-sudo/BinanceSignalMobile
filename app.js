@@ -88,6 +88,47 @@ function buildSupport(c,lookback,tf,atrWidth,profile){return pivotZones(c,lookba
 function buildResistance(c,lookback,tf,atrWidth,profile){return pivotZones(c,lookback,tf,atrWidth,profile,'resistance',1)[0]}
 function buildSupportZones(c,lookback,tf,atrWidth,profile,maxCount=2){return pivotZones(c,lookback,tf,atrWidth,profile,'support',maxCount)}
 function buildResistanceZones(c,lookback,tf,atrWidth,profile,maxCount=2){return pivotZones(c,lookback,tf,atrWidth,profile,'resistance',maxCount)}
+function buildWickResistanceZones4H(c,lookback=28,maxZones=2){
+  let subset=closedCandles(c).slice(-Math.min(lookback,c.length));
+  if(!subset.length)return[];
+  let ref=subset.at(-1).close,a=safeAtr(subset,Math.max(ref*.008,1e-8));
+  let tol=Math.max(a*.22,ref*.0012),pad=Math.max(a*.07,ref*.00035);
+  let pts=[];
+  subset.forEach((x,i)=>{
+    let bodyTop=Math.max(x.open,x.close),range=Math.max(x.high-x.low,1e-8),wick=Math.max(0,x.high-bodyTop);
+    let minWick=Math.max(range*.08,a*.025);
+    if(wick<minWick)return;
+    if(x.high<ref-a*.10)return;
+    pts.push({price:x.high,wick,wickRatio:wick/range,age:subset.length-1-i});
+  });
+  if(!pts.length){
+    let hi=recentResistance(subset,subset.length);
+    return [Object.assign(zone(Math.max(ref,hi-pad),hi+pad,'short','4H'),{touches:1,wickScore:0,source:'4H Wick Cluster'})];
+  }
+  pts.sort((a,b)=>a.price-b.price);
+  let clusters=[];
+  for(let p of pts){
+    let c0=clusters.at(-1);
+    if(!c0||p.price-c0.max>tol){clusters.push({items:[p],min:p.price,max:p.price});continue}
+    c0.items.push(p);c0.max=p.price;
+  }
+  let zones=clusters.map(c0=>{
+    let prices=c0.items.map(x=>x.price),weights=c0.items.map(x=>1+Math.min(x.wickRatio,1));
+    let wsum=weights.reduce((a,b)=>a+b,0),center=prices.reduce((s,v,i)=>s+v*weights[i],0)/wsum;
+    let touches=c0.items.length,wickScore=c0.items.reduce((s,x)=>s+x.wickRatio,0);
+    let recency=c0.items.reduce((s,x)=>s+1/(1+x.age*.08),0);
+    let z=zone(Math.max(0,Math.min(...prices)-pad),Math.max(...prices)+pad,'short','4H');
+    z.touches=touches;z.wickScore=wickScore;z.center=center;z.rankScore=touches*100+wickScore*18+recency*3;z.source='4H Wick Cluster';
+    return z;
+  }).filter(z=>z.high>=ref-a*.10);
+  zones.sort((a,b)=>b.rankScore-a.rankScore||Math.abs(a.mid-ref)-Math.abs(b.mid-ref));
+  let picked=[];
+  for(let z of zones){
+    if(picked.some(q=>Math.abs(q.mid-z.mid)<tol*1.4))continue;
+    picked.push(z);if(picked.length>=maxZones)break;
+  }
+  return picked.sort((a,b)=>a.mid-b.mid);
+}
 const frameOrder={'1M':0,'1W':1,'1D':2,'12H':3,'4H':4,'1H':5,'15m':6};
 function mergeZones(zones,profile,tolFactor){let sorted=[...zones].sort((a,b)=>a.low-b.low),m=[];for(let z of sorted){if(!m.length){m.push(z);continue}let last=m.at(-1),tol=Math.max(Math.max(last.high-last.low,1e-8),Math.max(z.high-z.low,1e-8))*tolFactor;if(z.low<=last.high+tol){let fr=[...new Set([...last.frames,...z.frames])].sort((a,b)=>(frameOrder[a]??9)-(frameOrder[b]??9));m[m.length-1]=zone(Math.min(last.low,z.low),Math.max(last.high,z.high),profile,...fr)}else m.push(z)}return m}
 function rankSupports(z,p){return [...z].sort((a,b)=>{let ac=a.high<=p?0:(a.low<=p?1:2),bc=b.high<=p?0:(b.low<=p?1:2);return ac-bc||Math.abs(p-a.mid)-Math.abs(p-b.mid)})}
@@ -152,11 +193,8 @@ function analyzeShort(data){
     ...buildSupportZones(H4,80,'4H',.4,'short',2),
     ...buildSupportZones(H1,100,'1H',.32,'short',2),
     ...buildSupportZones(C15,120,'15m',.25,'short',1)
-  ],'short',.24),p).slice(0,4),re=rankRes(mergeZones([
-    ...buildResistanceZones(H4,80,'4H',.4,'short',2),
-    ...buildResistanceZones(H1,100,'1H',.32,'short',2),
-    ...buildResistanceZones(C15,120,'15m',.25,'short',1)
-  ],'short',.24),p).slice(0,4);
+  ],'short',.24),p).slice(0,4),re=buildWickResistanceZones4H(H4,28,2);
+  reasons.push(`✓ Kháng cự: quét 28 nến 4H, chọn 2 cụm có nhiều râu nến chạm nhất${re[0]?.touches?` (${re.map(z=>z.touches+' râu').join(' / ')})`:''}`);
   let ps=nearestSupport(su,p),pr=nearestResistance(re,p),s15=recentSupport(C15,20),r15level=recentResistance(C15,20),wll=Math.max(s15,e20-.5*a15),wlh=e20+.25*a15;if(wll>wlh)wll=e20-.25*a15;let wsl=e20-.25*a15,wsh=Math.min(r15level,e20+.5*a15);if(wsh<wsl)wsh=e20+.25*a15;
   let conflict=t4&&t1&&t4!==t1,kind='WAIT';if(conflict){reasons.unshift('⚠ 4H và 1H xung đột → ưu tiên WAIT.')}else if(t4>0&&t1>0&&t15>0&&nearL&&r15<72)kind='LONG';else if(t4<0&&t1<0&&t15<0&&nearS&&r15>28)kind='SHORT';else if(score>=45&&t4>0&&t1>=0)kind='WATCH LONG';else if(score<=-45&&t4<0&&t1<=0)kind='WATCH SHORT';
   let out={kind,score,mode:'NGẮN HẠN',timeframes:`${tf('4H',t4)}   ${tf('1H',t1)}   ${tf('15m',t15)}`,reasons:reasons.slice(0,9),supports:su,resistances:re,primarySupport:ps,primaryResistance:pr,ref:last15.close};
@@ -164,7 +202,7 @@ function analyzeShort(data){
   if(kind==='SHORT'){let hi=Math.min(r15level,e20+.25*a15),lo=e20-.2*a15;if(lo>hi)[lo,hi]=[hi,lo];let mid=(lo+hi)/2,sl=Math.max(r15level,hi)+.35*a15,risk=sl-mid;if(risk>0)Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1:mid-1.5*risk,tp2:mid-2.5*risk,trigger:'15m đóng dưới EMA20, RSI < 48 và MACD âm',invalid:`Setup SHORT mất hiệu lực nếu 15m đóng trên khoảng ${fmt(sl)}.`});else out.kind='WATCH SHORT'}
   if(out.kind==='WATCH LONG'){out.watchLow=wll;out.watchHigh=wlh;out.invalid=out.invalid||`Vùng canh yếu đi nếu 15m đóng dưới khoảng ${fmt(wll-.35*a15)}.`;out.hint=`CANH LONG quanh ${fmt(wll)} – ${fmt(wlh)} [15m]. Đây là vùng chờ, chưa phải Entry.`;out.breakout=`Breakout nhanh: chờ 15m đóng trên ${fmt(r15level)}, sau đó chờ 15m retest/giữ vùng vừa phá.`}
   else if(out.kind==='WATCH SHORT'){out.watchLow=wsl;out.watchHigh=wsh;out.invalid=out.invalid||`Vùng canh yếu đi nếu 15m đóng trên khoảng ${fmt(wsh+.35*a15)}.`;out.hint=`CANH SHORT quanh ${fmt(wsl)} – ${fmt(wsh)} [15m]. Đây là vùng chờ, chưa phải Entry.`;out.breakout=`Breakdown nhanh: chờ 15m đóng dưới ${fmt(s15)}, sau đó chờ 15m retest/giữ vùng vừa phá.`}
-  else if(out.kind==='WAIT'){let nextR=(re||[]).find(z=>z!==pr&&z.low>=(pr?.high??0));let nextS=(su||[]).find(z=>z!==ps&&z.high<=(ps?.low??Infinity));out.hint=ps&&pr?`WAIT - hỗ trợ gần ${fmt(ps.low)}–${fmt(ps.high)} [${ps.frames.join('+')}] • kháng cự gần ${fmt(pr.low)}–${fmt(pr.high)} [${pr.frames.join('+')}]${nextR?` • kháng cự kế tiếp ${fmt(nextR.low)}–${fmt(nextR.high)} [${nextR.frames.join('+')}]`:''}.`:'WAIT - chưa có setup ngắn hạn rõ.';}
+  else if(out.kind==='WAIT'){let nextR=(re||[]).find(z=>z!==pr&&z.low>=(pr?.high??0));let nextS=(su||[]).find(z=>z!==ps&&z.high<=(ps?.low??Infinity));out.hint=ps&&pr?`WAIT - hỗ trợ gần ${fmt(ps.low)}–${fmt(ps.high)} [${ps.frames.join('+')}] • kháng cự 4H #1 ${fmt(pr.low)}–${fmt(pr.high)}${pr.touches?` (${pr.touches} râu)`:''}${nextR?` • kháng cự 4H #2 ${fmt(nextR.low)}–${fmt(nextR.high)}${nextR.touches?` (${nextR.touches} râu)`:''}`:''}.`:'WAIT - chưa có setup ngắn hạn rõ.';}
   else out.hint=`${out.kind}: Entry ${fmt(out.entryLow)} – ${fmt(out.entryHigh)} | SL ${fmt(out.sl)} | TP1 ${fmt(out.tp1)}`;
   return out;
 }
@@ -195,7 +233,7 @@ function renderAnalysis(a){
   state.analysis=a;els.mode.textContent=a.mode;els.badge.textContent=a.kind;els.badge.className=`signal ${signalClass(a.kind)}`;els.score.textContent=`Score ${a.score>=0?'+':''}${a.score}`;els.tf.textContent=a.timeframes;els.hint.textContent=a.hint||'--';els.updated.textContent=new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
   els.entry.textContent=a.entryLow!=null?`${fmt(a.entryLow)} – ${fmt(a.entryHigh)}`:(a.watchLow!=null?`Canh ${fmt(a.watchLow)} – ${fmt(a.watchHigh)}`:'--');els.sl.textContent=fmt(a.sl);els.tp1.textContent=fmt(a.tp1);els.tp2.textContent=fmt(a.tp2);els.tp3.textContent=fmt(a.tp3);els.invalid.textContent=a.invalid||'--';els.trigger.textContent=a.trigger||'';els.breakout.textContent=a.breakout||'';
   els.supports.innerHTML=(a.supports||[]).map(z=>`<div class="level"><strong>${fmt(z.low)} – ${fmt(z.high)}</strong><small>${z.frames.join('+')} • ${z.strength}</small></div>`).join('')||'<div class="muted">--</div>';
-  els.resistances.innerHTML=(a.resistances||[]).map(z=>`<div class="level"><strong>${fmt(z.low)} – ${fmt(z.high)}</strong><small>${z.frames.join('+')} • ${z.strength}</small></div>`).join('')||'<div class="muted">--</div>';
+  els.resistances.innerHTML=(a.resistances||[]).map(z=>`<div class="level"><strong>${fmt(z.low)} – ${fmt(z.high)}</strong><small>${z.frames.join('+')} • ${z.strength}${z.touches?` • ${z.touches} râu`:''}</small></div>`).join('')||'<div class="muted">--</div>';
   els.reasons.innerHTML=(a.reasons||[]).map(r=>`<div class="reason">${escapeHtml(r)}</div>`).join('');
 }
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
