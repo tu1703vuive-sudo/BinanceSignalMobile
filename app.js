@@ -48,10 +48,37 @@ function emaTrend(c){if(c.length<205)return 0;let v=c.map(x=>x.close),cl=v.at(-1
 function trend(c,fast,slow){if(c.length<slow+2)return 0;let v=c.map(x=>x.close),cl=v.at(-1),f=ema(v,fast),s=ema(v,slow);if(cl>f&&f>s)return 1;if(cl<f&&f<s)return-1;return 0}
 function adaptiveTrend(c){if(c.length>=205){let t=emaTrend(c);if(t)return t}return trend(c,20,50)}
 function safeAtr(c,fallback){let a=atr(c);return a>0?a:Math.max(fallback,1e-8)}
+function pivotWindow(tf){return tf==='15m'?3:tf==='1H'?4:tf==='4H'?4:tf==='12H'?5:tf==='1D'?5:tf==='1W'?4:3}
+function getPivotLevels(c,lookback,kind,tf){
+  let subset=c.slice(-Math.min(lookback,c.length)); if(subset.length<9) return [];
+  let w=pivotWindow(tf), out=[];
+  for(let i=w;i<subset.length-w;i++){
+    let cur=kind==='support'?subset[i].low:subset[i].high, ok=true;
+    for(let j=1;j<=w;j++){
+      if(kind==='support'){ if(cur>subset[i-j].low||cur>subset[i+j].low){ok=false;break} }
+      else { if(cur<subset[i-j].high||cur<subset[i+j].high){ok=false;break} }
+    }
+    if(ok) out.push({price:cur,index:i,candle:subset[i]});
+  }
+  return out;
+}
+function pickZoneFromPivots(c,lookback,tf,atrWidth,profile,kind){
+  let subset=c.slice(-Math.min(lookback,c.length)), ref=subset.at(-1)?.close||c.at(-1)?.close||0;
+  let a=safeAtr(subset,Math.max(ref*.01,1e-8)), mr=profile==='swing'?.0018:.0008, width=Math.max(a*atrWidth,Math.max(ref*mr,1e-8));
+  let pivots=getPivotLevels(c,lookback,kind,tf).map(x=>x.price);
+  let baseline=kind==='support'?recentSupport(subset,subset.length):recentResistance(subset,subset.length);
+  if(!pivots.length) pivots=[baseline];
+  let filtered=kind==='support'?pivots.filter(v=>v<=ref+.35*a):pivots.filter(v=>v>=ref-.35*a);
+  let anchor=(filtered.length?filtered:pivots).sort((x,y)=>Math.abs(ref-x)-Math.abs(ref-y))[0] ?? baseline;
+  let cluster=(filtered.length?filtered:pivots).filter(v=>Math.abs(v-anchor)<=a*.55);
+  let low=Math.min(anchor,...cluster), high=Math.max(anchor,...cluster);
+  if(kind==='support') return zone(low,Math.max(high,low+width),profile,tf);
+  return zone(Math.max(0,Math.min(low,high-width)),high,profile,tf);
+}
 function strength(frames,profile){let s=new Set(frames);if(profile==='swing'){if(s.has('1M')||(s.has('1W')&&s.size>=2)||(s.has('1D')&&(s.has('12H')||s.has('4H'))))return'VERY STRONG';if(s.has('1W')||s.has('1D'))return'MAJOR';if(s.size>=2||s.has('12H'))return'STRONG';return s.has('4H')?'MEDIUM':'SWING'}if(s.has('4H')&&s.has('1H'))return'VERY STRONG';if(s.size>=2||(s.has('1H')&&s.has('15m')))return'STRONG';if(s.has('4H')||s.has('1H'))return'MEDIUM';return'SHORT TERM'}
 function zone(low,high,profile,...frames){let fr=[...new Set(frames)];return{low:Math.min(low,high),high:Math.max(low,high),frames:fr,strength:strength(fr,profile),get mid(){return(this.low+this.high)/2}}}
-function buildSupport(c,lookback,tf,atrWidth,profile){let s=recentSupport(c,Math.min(lookback,c.length)),a=safeAtr(c,Math.max(s*.01,1e-8)),mr=profile==='swing'?.0018:.0008,w=Math.max(a*atrWidth,Math.max(s*mr,1e-8));return zone(s,s+w,profile,tf)}
-function buildResistance(c,lookback,tf,atrWidth,profile){let r=recentResistance(c,Math.min(lookback,c.length)),a=safeAtr(c,Math.max(r*.01,1e-8)),mr=profile==='swing'?.0018:.0008,w=Math.max(a*atrWidth,Math.max(r*mr,1e-8));return zone(Math.max(0,r-w),r,profile,tf)}
+function buildSupport(c,lookback,tf,atrWidth,profile){return pickZoneFromPivots(c,lookback,tf,atrWidth,profile,'support')}
+function buildResistance(c,lookback,tf,atrWidth,profile){return pickZoneFromPivots(c,lookback,tf,atrWidth,profile,'resistance')}
 const frameOrder={'1M':0,'1W':1,'1D':2,'12H':3,'4H':4,'1H':5,'15m':6};
 function mergeZones(zones,profile,tolFactor){let sorted=[...zones].sort((a,b)=>a.low-b.low),m=[];for(let z of sorted){if(!m.length){m.push(z);continue}let last=m.at(-1),tol=Math.max(Math.max(last.high-last.low,1e-8),Math.max(z.high-z.low,1e-8))*tolFactor;if(z.low<=last.high+tol){let fr=[...new Set([...last.frames,...z.frames])].sort((a,b)=>(frameOrder[a]??9)-(frameOrder[b]??9));m[m.length-1]=zone(Math.min(last.low,z.low),Math.max(last.high,z.high),profile,...fr)}else m.push(z)}return m}
 function rankSupports(z,p){return [...z].sort((a,b)=>((a.mid>p?1:0)-(b.mid>p?1:0))||Math.abs(p-a.mid)-Math.abs(p-b.mid))}
@@ -187,11 +214,11 @@ async function analyzeSelected(){
 }
 function drawChart(candles,a){
   const cvs=els.canvas,ctx=cvs.getContext('2d');let dpr=window.devicePixelRatio||1,w=cvs.clientWidth,h=cvs.clientHeight;cvs.width=Math.floor(w*dpr);cvs.height=Math.floor(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);ctx.fillStyle='#060a0f';ctx.fillRect(0,0,w,h);
-  if(!candles?.length)return;let data=closedCandles(candles).slice(-90);if(!data.length)return;let lo=Math.min(...data.map(x=>x.low)),hi=Math.max(...data.map(x=>x.high));let extra=(hi-lo)*.08||1;lo-=extra;hi+=extra;let pad={l:10,r:60,t:12,b:18},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,xstep=cw/data.length,scaleY=v=>pad.t+(hi-v)/(hi-lo)*ch;
-  ctx.strokeStyle='#233244';ctx.lineWidth=1;for(let i=0;i<5;i++){let y=pad.t+i*ch/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();let val=hi-(hi-lo)*i/4;ctx.fillStyle='#b7c8d8';ctx.font='11px -apple-system,BlinkMacSystemFont,sans-serif';ctx.fillText(fmt(val),w-pad.r+5,y+4)}
-  function band(z,fill,stroke){if(!z)return;let y1=scaleY(z.high),y2=scaleY(z.low),bh=Math.max(2,y2-y1);ctx.fillStyle=fill;ctx.fillRect(pad.l,y1,cw,bh);ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.strokeRect(pad.l+.5,y1+.5,cw-1,Math.max(1,bh-1))}
-  band(a.primarySupport,'rgba(0,245,160,.16)','rgba(0,245,160,.48)');band(a.primaryResistance,'rgba(255,59,92,.16)','rgba(255,59,92,.48)');
-  data.forEach((c,i)=>{let x=pad.l+i*xstep+xstep*.5,yo=scaleY(c.open),yc=scaleY(c.close),yh=scaleY(c.high),yl=scaleY(c.low),up=c.close>=c.open,color=up?'#00f5a0':'#ff3b5c';ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=1.8;ctx.shadowColor=color;ctx.shadowBlur=3;ctx.beginPath();ctx.moveTo(x,yh);ctx.lineTo(x,yl);ctx.stroke();let bw=Math.max(2,xstep*.68),top=Math.min(yo,yc),bh=Math.max(2,Math.abs(yc-yo));ctx.fillRect(x-bw/2,top,bw,bh);ctx.shadowBlur=0});
+  if(!candles?.length)return;let data=closedCandles(candles).slice(-70);if(!data.length)return;let lo=Math.min(...data.map(x=>x.low)),hi=Math.max(...data.map(x=>x.high));let extra=(hi-lo)*.10||1;lo-=extra;hi+=extra;let pad={l:10,r:68,t:12,b:18},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,xstep=cw/data.length,scaleY=v=>pad.t+(hi-v)/(hi-lo)*ch;
+  ctx.strokeStyle='#25364a';ctx.lineWidth=1.1;for(let i=0;i<5;i++){let y=pad.t+i*ch/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();let val=hi-(hi-lo)*i/4;ctx.fillStyle='#c8d4e4';ctx.font='11px -apple-system,BlinkMacSystemFont,sans-serif';ctx.fillText(fmt(val),w-pad.r+5,y+4)}
+  function band(z,fill,stroke){if(!z)return;let y1=scaleY(z.high),y2=scaleY(z.low),bh=Math.max(3,y2-y1);ctx.fillStyle=fill;ctx.fillRect(pad.l,y1,cw,bh);ctx.strokeStyle=stroke;ctx.lineWidth=1.3;ctx.strokeRect(pad.l+.5,y1+.5,cw-1,Math.max(1,bh-1));ctx.beginPath();ctx.moveTo(pad.l,y1);ctx.lineTo(pad.l+cw,y1);ctx.moveTo(pad.l,y2);ctx.lineTo(pad.l+cw,y2);ctx.stroke()}
+  band(a.primarySupport,'rgba(0,255,163,.20)','rgba(26,255,170,.85)');band(a.primaryResistance,'rgba(255,78,110,.20)','rgba(255,92,120,.88)');
+  data.forEach((c,i)=>{let x=pad.l+i*xstep+xstep*.5,yo=scaleY(c.open),yc=scaleY(c.close),yh=scaleY(c.high),yl=scaleY(c.low),up=c.close>=c.open,color=up?'#19ffb2':'#ff5b78';ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=Math.max(2,Math.min(2.6,xstep*.24));ctx.beginPath();ctx.moveTo(x,yh);ctx.lineTo(x,yl);ctx.stroke();let bw=Math.max(5,Math.min(10,xstep*.72)),top=Math.min(yo,yc),bh=Math.max(3,Math.abs(yc-yo));ctx.shadowColor=color;ctx.shadowBlur=up?7:6;ctx.fillRect(x-bw/2,top,bw,bh);ctx.shadowBlur=0;});
 }
 async function selectSymbol(s){state.selected=s;state.candles={};persist();renderWatchlist();renderSelectedTicker();await analyzeSelected()}
 async function removeSymbol(s){
