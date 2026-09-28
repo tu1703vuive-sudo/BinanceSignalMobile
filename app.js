@@ -8,13 +8,13 @@ const ANALYSIS_TIMEFRAMES={swing:['1M','1w','1d','12h','4h'],short:['15m','1h','
 const storedMode=localStorage.getItem('bsm_mode')||'swing';
 const state={
   mode:storedMode,
-  chartTf:localStorage.getItem('bsm_chart_tf')||(storedMode==='swing'?'4h':'15m'),
+  chartTf:localStorage.getItem('bsm_chart_tf')||'4h',
   symbols:JSON.parse(localStorage.getItem('bsm_symbols')||'null')||DEFAULT_SYMBOLS,
   favorites:new Set(JSON.parse(localStorage.getItem('bsm_favorites')||'["BTCUSDT"]')),
   selected:localStorage.getItem('bsm_selected')||'BTCUSDT',
   tickers:new Map(), candles:new Map(), ws:null, analysis:null, deferredPrompt:null
 };
-if(!CHART_TIMEFRAMES.includes(state.chartTf)) state.chartTf=state.mode==='swing'?'4h':'15m';
+if(!CHART_TIMEFRAMES.includes(state.chartTf)) state.chartTf='4h';
 
 const $=id=>document.getElementById(id);
 const els={
@@ -64,16 +64,18 @@ function getPivotLevels(c,lookback,kind,tf){
 }
 function pickZoneFromPivots(c,lookback,tf,atrWidth,profile,kind){
   let subset=c.slice(-Math.min(lookback,c.length)), ref=subset.at(-1)?.close||c.at(-1)?.close||0;
-  let a=safeAtr(subset,Math.max(ref*.01,1e-8)), mr=profile==='swing'?.0018:.0008, width=Math.max(a*atrWidth,Math.max(ref*mr,1e-8));
+  let a=safeAtr(subset,Math.max(ref*.01,1e-8)), mr=profile==='swing'?.0016:.00065, width=Math.max(a*atrWidth*.72,Math.max(ref*mr,1e-8));
   let pivots=getPivotLevels(c,lookback,kind,tf).map(x=>x.price);
   let baseline=kind==='support'?recentSupport(subset,subset.length):recentResistance(subset,subset.length);
   if(!pivots.length) pivots=[baseline];
-  let filtered=kind==='support'?pivots.filter(v=>v<=ref+.35*a):pivots.filter(v=>v>=ref-.35*a);
-  let anchor=(filtered.length?filtered:pivots).sort((x,y)=>Math.abs(ref-x)-Math.abs(ref-y))[0] ?? baseline;
-  let cluster=(filtered.length?filtered:pivots).filter(v=>Math.abs(v-anchor)<=a*.55);
-  let low=Math.min(anchor,...cluster), high=Math.max(anchor,...cluster);
-  if(kind==='support') return zone(low,Math.max(high,low+width),profile,tf);
-  return zone(Math.max(0,Math.min(low,high-width)),high,profile,tf);
+  let sameSide=kind==='support'?pivots.filter(v=>v<=ref):pivots.filter(v=>v>=ref);
+  let usable=(sameSide.length?sameSide:pivots);
+  let anchor=kind==='support'?Math.max(...usable):Math.min(...usable);
+  let cluster=usable.filter(v=>Math.abs(v-anchor)<=a*.35);
+  if(!cluster.length) cluster=[anchor];
+  let low=Math.min(...cluster), high=Math.max(...cluster);
+  if(kind==='support') return zone(low,Math.max(high,anchor+width*.55),profile,tf);
+  return zone(Math.max(0,Math.min(low,anchor-width*.55)),high,profile,tf);
 }
 function strength(frames,profile){let s=new Set(frames);if(profile==='swing'){if(s.has('1M')||(s.has('1W')&&s.size>=2)||(s.has('1D')&&(s.has('12H')||s.has('4H'))))return'VERY STRONG';if(s.has('1W')||s.has('1D'))return'MAJOR';if(s.size>=2||s.has('12H'))return'STRONG';return s.has('4H')?'MEDIUM':'SWING'}if(s.has('4H')&&s.has('1H'))return'VERY STRONG';if(s.size>=2||(s.has('1H')&&s.has('15m')))return'STRONG';if(s.has('4H')||s.has('1H'))return'MEDIUM';return'SHORT TERM'}
 function zone(low,high,profile,...frames){let fr=[...new Set(frames)];return{low:Math.min(low,high),high:Math.max(low,high),frames:fr,strength:strength(fr,profile),get mid(){return(this.low+this.high)/2}}}
@@ -81,8 +83,10 @@ function buildSupport(c,lookback,tf,atrWidth,profile){return pickZoneFromPivots(
 function buildResistance(c,lookback,tf,atrWidth,profile){return pickZoneFromPivots(c,lookback,tf,atrWidth,profile,'resistance')}
 const frameOrder={'1M':0,'1W':1,'1D':2,'12H':3,'4H':4,'1H':5,'15m':6};
 function mergeZones(zones,profile,tolFactor){let sorted=[...zones].sort((a,b)=>a.low-b.low),m=[];for(let z of sorted){if(!m.length){m.push(z);continue}let last=m.at(-1),tol=Math.max(Math.max(last.high-last.low,1e-8),Math.max(z.high-z.low,1e-8))*tolFactor;if(z.low<=last.high+tol){let fr=[...new Set([...last.frames,...z.frames])].sort((a,b)=>(frameOrder[a]??9)-(frameOrder[b]??9));m[m.length-1]=zone(Math.min(last.low,z.low),Math.max(last.high,z.high),profile,...fr)}else m.push(z)}return m}
-function rankSupports(z,p){return [...z].sort((a,b)=>((a.mid>p?1:0)-(b.mid>p?1:0))||Math.abs(p-a.mid)-Math.abs(p-b.mid))}
-function rankRes(z,p){return [...z].sort((a,b)=>((a.mid<p?1:0)-(b.mid<p?1:0))||Math.abs(a.mid-p)-Math.abs(b.mid-p))}
+function rankSupports(z,p){return [...z].sort((a,b)=>{let ac=a.high<=p?0:(a.low<=p?1:2),bc=b.high<=p?0:(b.low<=p?1:2);return ac-bc||Math.abs(p-a.mid)-Math.abs(p-b.mid)})}
+function rankRes(z,p){return [...z].sort((a,b)=>{let ac=a.low>=p?0:(a.high>=p?1:2),bc=b.low>=p?0:(b.high>=p?1:2);return ac-bc||Math.abs(a.mid-p)-Math.abs(b.mid-p)})}
+function nearestSupport(z,p){let list=rankSupports(z,p);return list.find(x=>x.high<=p)||list.find(x=>x.low<=p&&x.high>=p)||list[0]}
+function nearestResistance(z,p){let list=rankRes(z,p);return list.find(x=>x.low>=p)||list.find(x=>x.low<=p&&x.high>=p)||list[0]}
 function tf(name,s){return `${name} ${s>0?'↑':s<0?'↓':'→'}`}
 function reasonTf(name,s,role){return s>0?`✓ ${name}: bullish (${role})`:s<0?`✓ ${name}: bearish (${role})`:`○ ${name}: chưa rõ xu hướng (${role})`}
 function selectDistinct(candidates,risk,asc){let r=[],min=Math.max(risk*.1,1e-8);for(let c of candidates){if(r.length&&Math.abs(c-r.at(-1))<min)continue;r.push(c);if(r.length===3)break}while(r.length<3){let step=Math.max(risk,1e-8),anchor=r.length?r.at(-1):0;r.push(r.length===0?(asc?step:-step):(asc?anchor+step:anchor-step))}return r}
@@ -106,7 +110,7 @@ function analyzeSwing(data){
   let re=[buildResistance(W,52,'1W',.75,'swing'),buildResistance(D,120,'1D',.65,'swing'),buildResistance(H12,140,'12H',.55,'swing'),buildResistance(H4,150,'4H',.50,'swing')];
   if(M.length>=8){su.push(buildSupport(M,Math.min(18,M.length),'1M',.85,'swing'));re.push(buildResistance(M,Math.min(18,M.length),'1M',.85,'swing'))}
   su=rankSupports(mergeZones(su,'swing',.55),p).slice(0,4);re=rankRes(mergeZones(re,'swing',.55),p).slice(0,4);
-  let ps=su.find(z=>z.low<=p+.25*a4)||su[0],pr=re.find(z=>z.high>=p-.25*a4)||re[0];
+  let ps=nearestSupport(su,p),pr=nearestResistance(re,p);
   let mw=tM&&tW&&tM!==tW,wd=tW&&tD&&tW!==tD,longBias=tW>0&&tD>0&&tM>=0,shortBias=tW<0&&tD<0&&tM<=0;
   if(mw)reasons.unshift('⚠ 1M và 1W xung đột → chưa phù hợp để giữ vị thế dài.');else if(wd)reasons.unshift('⚠ 1W và 1D xung đột → ưu tiên WAIT.');
   let nearS=ps&&p>=ps.low-.25*a4&&p<=ps.high+.55*a4,nearR=pr&&p<=pr.high+.25*a4&&p>=pr.low-.55*a4;
@@ -132,13 +136,13 @@ function analyzeShort(data){
   if(last15.close>e20&&r15>=52&&r15<72&&m15.hist>0){t15=1;reasons.push(`✓ 15m: timing LONG xác nhận (RSI ${r15.toFixed(1)}, MACD dương)`)}
   else if(last15.close<e20&&r15<=48&&r15>28&&m15.hist<0){t15=-1;reasons.push(`✓ 15m: timing SHORT xác nhận (RSI ${r15.toFixed(1)}, MACD âm)`)}else reasons.push(`○ 15m: timing chưa đồng thuận (RSI ${r15.toFixed(1)})`);
   if(r15>72)reasons.push('⚠ 15m: RSI cao, tránh đuổi LONG');else if(r15<28)reasons.push('⚠ 15m: RSI thấp, tránh đuổi SHORT');
-  // Trọng số Ngắn hạn: 4H 45% • 1H 35% • 15m 20%. Không dùng 5m trong engine.
-  let score=clamp(t4*45+t1*35+t15*20,-100,100);
+  // Trọng số Ngắn hạn: 4H 50% • 1H 30% • 15m 20%. Không dùng 5m trong engine.
+  let score=clamp(t4*50+t1*30+t15*20,-100,100);
   let av=avgPrevVol(C15,20),vr=av?last15.volume/av:0;if(vr>=1.2){reasons.push(last15.close>=last15.open?`✓ Volume 15m mua tăng (${vr.toFixed(1)}x trung bình)`:`✓ Volume 15m bán tăng (${vr.toFixed(1)}x trung bình)`)}else reasons.push('○ Volume 15m chưa nổi bật');
   let nearL=last15.close>=e20-.3*a15&&last15.close<=e20+.8*a15&&last15.close>e50,nearS=last15.close<=e20+.3*a15&&last15.close>=e20-.8*a15&&last15.close<e50;
   if(t4>0&&t1>0&&nearL)reasons.push('✓ 15m: giá đang ở vùng pullback hợp lý quanh EMA20');else if(t4<0&&t1<0&&nearS)reasons.push('✓ 15m: giá đang ở vùng hồi hợp lý quanh EMA20');
   let p=last15.close,su=rankSupports(mergeZones([buildSupport(H4,80,'4H',.4,'short'),buildSupport(H1,100,'1H',.32,'short'),buildSupport(C15,120,'15m',.25,'short')],'short',.28),p).slice(0,4),re=rankRes(mergeZones([buildResistance(H4,80,'4H',.4,'short'),buildResistance(H1,100,'1H',.32,'short'),buildResistance(C15,120,'15m',.25,'short')],'short',.28),p).slice(0,4);
-  let ps=su[0],pr=re[0],s15=recentSupport(C15,20),r15level=recentResistance(C15,20),wll=Math.max(s15,e20-.5*a15),wlh=e20+.25*a15;if(wll>wlh)wll=e20-.25*a15;let wsl=e20-.25*a15,wsh=Math.min(r15level,e20+.5*a15);if(wsh<wsl)wsh=e20+.25*a15;
+  let ps=nearestSupport(su,p),pr=nearestResistance(re,p),s15=recentSupport(C15,20),r15level=recentResistance(C15,20),wll=Math.max(s15,e20-.5*a15),wlh=e20+.25*a15;if(wll>wlh)wll=e20-.25*a15;let wsl=e20-.25*a15,wsh=Math.min(r15level,e20+.5*a15);if(wsh<wsl)wsh=e20+.25*a15;
   let conflict=t4&&t1&&t4!==t1,kind='WAIT';if(conflict){reasons.unshift('⚠ 4H và 1H xung đột → ưu tiên WAIT.')}else if(t4>0&&t1>0&&t15>0&&nearL&&r15<72)kind='LONG';else if(t4<0&&t1<0&&t15<0&&nearS&&r15>28)kind='SHORT';else if(score>=45&&t4>0&&t1>=0)kind='WATCH LONG';else if(score<=-45&&t4<0&&t1<=0)kind='WATCH SHORT';
   let out={kind,score,mode:'NGẮN HẠN',timeframes:`${tf('4H',t4)}   ${tf('1H',t1)}   ${tf('15m',t15)}`,reasons:reasons.slice(0,9),supports:su,resistances:re,primarySupport:ps,primaryResistance:pr,ref:last15.close};
   if(kind==='LONG'){let lo=Math.max(s15,e20-.25*a15),hi=e20+.2*a15;if(lo>hi)[lo,hi]=[hi,lo];let mid=(lo+hi)/2,sl=Math.min(s15,lo)-.35*a15,risk=mid-sl;if(risk>0)Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1:mid+1.5*risk,tp2:mid+2.5*risk,trigger:'15m đóng trên EMA20, RSI > 52 và MACD dương',invalid:`Setup LONG mất hiệu lực nếu 15m đóng dưới khoảng ${fmt(sl)}.`});else out.kind='WATCH LONG'}
@@ -214,11 +218,19 @@ async function analyzeSelected(){
 }
 function drawChart(candles,a){
   const cvs=els.canvas,ctx=cvs.getContext('2d');let dpr=window.devicePixelRatio||1,w=cvs.clientWidth,h=cvs.clientHeight;cvs.width=Math.floor(w*dpr);cvs.height=Math.floor(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);ctx.fillStyle='#060a0f';ctx.fillRect(0,0,w,h);
-  if(!candles?.length)return;let data=closedCandles(candles).slice(-70);if(!data.length)return;let lo=Math.min(...data.map(x=>x.low)),hi=Math.max(...data.map(x=>x.high));let extra=(hi-lo)*.10||1;lo-=extra;hi+=extra;let pad={l:10,r:68,t:12,b:18},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,xstep=cw/data.length,scaleY=v=>pad.t+(hi-v)/(hi-lo)*ch;
+  if(!candles?.length)return;
+  let visible=w<420?42:w<900?52:58;
+  let data=closedCandles(candles).slice(-visible);if(!data.length)return;
+  let lo=Math.min(...data.map(x=>x.low)),hi=Math.max(...data.map(x=>x.high));let extra=(hi-lo)*.12||1;lo-=extra;hi+=extra;
+  let pad={l:10,r:68,t:12,b:18},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,xstep=cw/data.length,scaleY=v=>pad.t+(hi-v)/(hi-lo)*ch;
   ctx.strokeStyle='#25364a';ctx.lineWidth=1.1;for(let i=0;i<5;i++){let y=pad.t+i*ch/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();let val=hi-(hi-lo)*i/4;ctx.fillStyle='#c8d4e4';ctx.font='11px -apple-system,BlinkMacSystemFont,sans-serif';ctx.fillText(fmt(val),w-pad.r+5,y+4)}
-  function band(z,fill,stroke){if(!z)return;let y1=scaleY(z.high),y2=scaleY(z.low),bh=Math.max(3,y2-y1);ctx.fillStyle=fill;ctx.fillRect(pad.l,y1,cw,bh);ctx.strokeStyle=stroke;ctx.lineWidth=1.3;ctx.strokeRect(pad.l+.5,y1+.5,cw-1,Math.max(1,bh-1));ctx.beginPath();ctx.moveTo(pad.l,y1);ctx.lineTo(pad.l+cw,y1);ctx.moveTo(pad.l,y2);ctx.lineTo(pad.l+cw,y2);ctx.stroke()}
-  band(a.primarySupport,'rgba(0,255,163,.20)','rgba(26,255,170,.85)');band(a.primaryResistance,'rgba(255,78,110,.20)','rgba(255,92,120,.88)');
-  data.forEach((c,i)=>{let x=pad.l+i*xstep+xstep*.5,yo=scaleY(c.open),yc=scaleY(c.close),yh=scaleY(c.high),yl=scaleY(c.low),up=c.close>=c.open,color=up?'#19ffb2':'#ff5b78';ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=Math.max(2,Math.min(2.6,xstep*.24));ctx.beginPath();ctx.moveTo(x,yh);ctx.lineTo(x,yl);ctx.stroke();let bw=Math.max(5,Math.min(10,xstep*.72)),top=Math.min(yo,yc),bh=Math.max(3,Math.abs(yc-yo));ctx.shadowColor=color;ctx.shadowBlur=up?7:6;ctx.fillRect(x-bw/2,top,bw,bh);ctx.shadowBlur=0;});
+  function band(z,fill,stroke){if(!z)return;let y1=scaleY(z.high),y2=scaleY(z.low),bh=Math.max(3,y2-y1);ctx.fillStyle=fill;ctx.fillRect(pad.l,y1,cw,bh);ctx.strokeStyle=stroke;ctx.lineWidth=1.35;ctx.strokeRect(pad.l+.5,y1+.5,cw-1,Math.max(1,bh-1));ctx.beginPath();ctx.moveTo(pad.l,y1);ctx.lineTo(pad.l+cw,y1);ctx.moveTo(pad.l,y2);ctx.lineTo(pad.l+cw,y2);ctx.stroke()}
+  band(a.primarySupport,'rgba(0,255,163,.18)','rgba(20,255,170,.92)');band(a.primaryResistance,'rgba(255,78,110,.18)','rgba(255,98,126,.92)');
+  data.forEach((c,i)=>{let x=pad.l+i*xstep+xstep*.5,yo=scaleY(c.open),yc=scaleY(c.close),yh=scaleY(c.high),yl=scaleY(c.low),up=c.close>=c.open,color=up?'#19ffb2':'#ff5b78';
+    ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=Math.max(2.2,Math.min(3.2,xstep*.28));ctx.beginPath();ctx.moveTo(x,yh);ctx.lineTo(x,yl);ctx.stroke();
+    let bw=Math.max(6,Math.min(12,xstep*.78)),top=Math.min(yo,yc),bh=Math.max(4,Math.abs(yc-yo));
+    ctx.shadowColor=color;ctx.shadowBlur=6;ctx.fillRect(x-bw/2,top,bw,bh);ctx.shadowBlur=0;ctx.strokeStyle=color;ctx.lineWidth=1;ctx.strokeRect(x-bw/2,top,bw,bh);
+  });
 }
 async function selectSymbol(s){state.selected=s;state.candles={};persist();renderWatchlist();renderSelectedTicker();await analyzeSelected()}
 async function removeSymbol(s){
@@ -228,13 +240,13 @@ async function removeSymbol(s){
   if(wasSelected)state.selected=state.symbols[0];state.candles={};persist();renderWatchlist();renderSelectedTicker();connectTicker();if(wasSelected)await analyzeSelected();
 }
 async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim();if(!s)return;if(!s.endsWith('USDT'))s+='USDT';els.add.disabled=true;try{let t=await validateSymbol(s);state.tickers.set(s,{price:t.price,change:t.change});if(!state.symbols.includes(s))state.symbols.push(s);state.selected=s;state.candles={};els.input.value='';persist();renderWatchlist();connectTicker();await analyzeSelected()}catch{alert('Không tìm thấy cặp coin này trên Binance Spot hoặc Binance đang chặn kết nối từ mạng hiện tại.')}finally{els.add.disabled=false}}
-function setMode(m){state.mode=m;state.chartTf=m==='swing'?'4h':'15m';els.swing.classList.toggle('active',m==='swing');els.short.classList.toggle('active',m==='short');updateTimeframeButtons();persist();analyzeSelected()}
+function setMode(m){state.mode=m;state.chartTf='4h';els.swing.classList.toggle('active',m==='swing');els.short.classList.toggle('active',m==='short');updateTimeframeButtons();persist();analyzeSelected()}
 els.swing.onclick=()=>setMode('swing');els.short.onclick=()=>setMode('short');els.add.onclick=addSymbol;els.input.addEventListener('keydown',e=>{if(e.key==='Enter')addSymbol()});els.refresh.onclick=analyzeSelected;els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>setChartTimeframe(b.dataset.tf)));window.addEventListener('resize',()=>{if(state.candles?.[state.chartTf])drawChart(state.candles[state.chartTf],state.analysis||{})});
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.deferredPrompt=e;els.install.classList.remove('hidden')});els.install.onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;els.install.classList.add('hidden')}};
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 
 (async function init(){
-  if(!state.symbols.includes(state.selected))state.selected=state.symbols[0]||'BTCUSDT';els.swing.classList.toggle('active',state.mode==='swing');els.short.classList.toggle('active',state.mode==='short');updateTimeframeButtons();renderWatchlist();renderSelectedTicker();connectTicker();
+  if(!state.symbols.includes(state.selected))state.selected=state.symbols[0]||'BTCUSDT';if(state.mode==='short') state.chartTf='4h';els.swing.classList.toggle('active',state.mode==='swing');els.short.classList.toggle('active',state.mode==='short');updateTimeframeButtons();renderWatchlist();renderSelectedTicker();connectTicker();
   try{let t=await validateSymbol(state.selected);state.tickers.set(state.selected,{price:t.price,change:t.change});renderWatchlist();renderSelectedTicker()}catch{}
   analyzeSelected();
 })();
