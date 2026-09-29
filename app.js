@@ -12,7 +12,7 @@ const state={
   symbols:JSON.parse(localStorage.getItem('bsm_symbols')||'null')||DEFAULT_SYMBOLS,
   favorites:new Set(JSON.parse(localStorage.getItem('bsm_favorites')||'["BTCUSDT"]')),
   selected:localStorage.getItem('bsm_selected')||'BTCUSDT',
-  tickers:new Map(), candles:new Map(), ws:null, analysis:null, deferredPrompt:null
+  tickers:new Map(), candles:new Map(), liveKlines:{}, ws:null, klineWs:null, klineReconnectTimer:null, analysis:null, deferredPrompt:null
 };
 if(!CHART_TIMEFRAMES.includes(state.chartTf)) state.chartTf='4h';
 
@@ -291,6 +291,45 @@ function basicWait(mode,msg){return{kind:'WAIT',score:0,mode,timeframes:'--',rea
 
 async function apiFetch(path){let last;for(let base of API_BASES){try{let r=await fetch(base+path,{cache:'no-store'});if(!r.ok)throw new Error(`${r.status}`);return await r.json()}catch(e){last=e}}throw last||new Error('Không kết nối được Binance')}
 async function getKlines(symbol,interval,limit=260){let rows=await apiFetch(`/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`);return rows.map(r=>({openTime:+r[0],open:+r[1],high:+r[2],low:+r[3],close:+r[4],volume:+r[5],closeTime:+r[6]}))}
+
+function mergeLiveCandle(interval,candles){
+  let live=state.liveKlines?.[interval]; if(!live)return candles;
+  let out=[...(candles||[])], last=out.at(-1);
+  if(last&&last.openTime===live.openTime) out[out.length-1]=live;
+  else if(!last||live.openTime>last.openTime) out.push(live);
+  return out.slice(-300);
+}
+function applyLiveKline(interval,candle){
+  state.liveKlines[interval]=candle;
+  let arr=state.candles?.[interval];
+  if(arr?.length){
+    let last=arr.at(-1);
+    if(last.openTime===candle.openTime) arr[arr.length-1]=candle;
+    else if(candle.openTime>last.openTime) arr.push(candle);
+    if(arr.length>300)arr.splice(0,arr.length-300);
+  }
+  if(interval===state.chartTf&&state.candles?.[interval]) drawChart(state.candles[interval],state.analysis||{});
+}
+function connectKlines(){
+  if(state.klineReconnectTimer){clearTimeout(state.klineReconnectTimer);state.klineReconnectTimer=null}
+  if(state.klineWs){try{state.klineWs.onclose=null;state.klineWs.close()}catch{}state.klineWs=null}
+  let symbol=(state.selected||'').toLowerCase(); if(!symbol)return;
+  let streams=CHART_TIMEFRAMES.map(tf=>`${symbol}@kline_${tf}`).join('/');
+  let ws=new WebSocket(WS_BASE+streams); state.klineWs=ws;
+  ws.onmessage=e=>{try{
+    let payload=JSON.parse(e.data),d=payload.data||payload,k=d.k;if(!k||d.s!==state.selected)return;
+    let candle={openTime:+k.t,open:+k.o,high:+k.h,low:+k.l,close:+k.c,volume:+k.v,closeTime:+k.T};
+    applyLiveKline(k.i,candle);
+    if(k.i===state.chartTf){
+      let t=state.tickers.get(state.selected)||{};state.tickers.set(state.selected,{price:candle.close,change:t.change||0});renderSelectedTicker();
+    }
+    if(k.x&&(ANALYSIS_TIMEFRAMES[state.mode]||[]).includes(k.i)){
+      clearTimeout(connectKlines._analysisTimer);connectKlines._analysisTimer=setTimeout(()=>analyzeSelected(),450);
+    }
+  }catch{}};
+  ws.onclose=()=>{if(state.klineWs===ws){state.klineReconnectTimer=setTimeout(connectKlines,1800)}};
+  ws.onerror=()=>{};
+}
 async function validateSymbol(s){let j=await apiFetch(`/api/v3/ticker/24hr?symbol=${encodeURIComponent(s)}`);return{symbol:s,price:+j.lastPrice,change:+j.priceChangePercent}}
 
 function connectTicker(){
@@ -330,7 +369,7 @@ async function setChartTimeframe(tf){
     let candles=state.candles?.[tf];
     if(!candles){
       els.updated.textContent='Đang tải...';
-      candles=await getKlines(state.selected,tf,260);
+      candles=mergeLiveCandle(tf,await getKlines(state.selected,tf,260));
       if(!state.candles||Array.isArray(state.candles))state.candles={};
       state.candles[tf]=candles;
     }
@@ -345,7 +384,7 @@ async function analyzeSelected(){
   try{
     let analysisIntervals=ANALYSIS_TIMEFRAMES[state.mode]||ANALYSIS_TIMEFRAMES.short;
     let intervals=[...new Set([...analysisIntervals,state.chartTf])];
-    let data={};await Promise.all(intervals.map(async i=>{data[i]=await getKlines(state.selected,i,260)}));state.candles=data;
+    let data={};await Promise.all(intervals.map(async i=>{data[i]=mergeLiveCandle(i,await getKlines(state.selected,i,260))}));state.candles=data;
     let a=state.mode==='swing'?analyzeSwing(data):analyzeShort(data);renderAnalysis(a);updateTimeframeButtons();els.chartTitle.textContent=`${state.selected} • ${chartTfLabel(state.chartTf)}`;drawChart(data[state.chartTf],a);
   }catch(e){renderAnalysis(basicWait(state.mode==='swing'?'DÀI HẠN':'NGẮN HẠN',`Không tải được Binance: ${e.message||e}`));}
   finally{els.refresh.disabled=false}
@@ -354,7 +393,7 @@ function drawChart(candles,a){
   const cvs=els.canvas,ctx=cvs.getContext('2d');let dpr=window.devicePixelRatio||1,w=cvs.clientWidth,h=cvs.clientHeight;cvs.width=Math.floor(w*dpr);cvs.height=Math.floor(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);ctx.fillStyle='#060a0f';ctx.fillRect(0,0,w,h);
   if(!candles?.length)return;
   let visible=w<420?42:w<900?52:58;
-  let data=closedCandles(candles).slice(-visible);if(!data.length)return;
+  let data=candles.slice(-visible);if(!data.length)return;
   let lo=Math.min(...data.map(x=>x.low)),hi=Math.max(...data.map(x=>x.high));let extra=(hi-lo)*.12||1;lo-=extra;hi+=extra;
   let pad={l:10,r:68,t:12,b:18},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,xstep=cw/data.length,scaleY=v=>pad.t+(hi-v)/(hi-lo)*ch;
   ctx.strokeStyle='#25364a';ctx.lineWidth=1.1;for(let i=0;i<5;i++){let y=pad.t+i*ch/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();let val=hi-(hi-lo)*i/4;ctx.fillStyle='#c8d4e4';ctx.font='11px -apple-system,BlinkMacSystemFont,sans-serif';ctx.fillText(fmt(val),w-pad.r+5,y+4)}
@@ -368,21 +407,22 @@ function drawChart(candles,a){
     ctx.shadowColor=color;ctx.shadowBlur=6;ctx.fillRect(x-bw/2,top,bw,bh);ctx.shadowBlur=0;ctx.strokeStyle=color;ctx.lineWidth=1;ctx.strokeRect(x-bw/2,top,bw,bh);
   });
 }
-async function selectSymbol(s){state.selected=s;state.candles={};persist();renderWatchlist();renderSelectedTicker();await analyzeSelected()}
+async function selectSymbol(s){state.selected=s;state.candles={};state.liveKlines={};persist();renderWatchlist();renderSelectedTicker();connectKlines();await analyzeSelected()}
 async function removeSymbol(s){
   if(state.symbols.length<=1){alert('Cần giữ lại ít nhất 1 coin trong danh sách.');return}
   if(!confirm(`Xóa ${s.replace('USDT','/USDT')} khỏi danh sách?`))return;
   let wasSelected=state.selected===s;state.symbols=state.symbols.filter(x=>x!==s);state.favorites.delete(s);state.tickers.delete(s);
-  if(wasSelected)state.selected=state.symbols[0];state.candles={};persist();renderWatchlist();renderSelectedTicker();connectTicker();if(wasSelected)await analyzeSelected();
+  if(wasSelected)state.selected=state.symbols[0];state.candles={};if(wasSelected)state.liveKlines={};persist();renderWatchlist();renderSelectedTicker();connectTicker();if(wasSelected){connectKlines();await analyzeSelected();}
 }
-async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim();if(!s)return;if(!s.endsWith('USDT'))s+='USDT';els.add.disabled=true;try{let t=await validateSymbol(s);state.tickers.set(s,{price:t.price,change:t.change});if(!state.symbols.includes(s))state.symbols.push(s);state.selected=s;state.candles={};els.input.value='';persist();renderWatchlist();connectTicker();await analyzeSelected()}catch{alert('Không tìm thấy cặp coin này trên Binance Spot hoặc Binance đang chặn kết nối từ mạng hiện tại.')}finally{els.add.disabled=false}}
+async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim();if(!s)return;if(!s.endsWith('USDT'))s+='USDT';els.add.disabled=true;try{let t=await validateSymbol(s);state.tickers.set(s,{price:t.price,change:t.change});if(!state.symbols.includes(s))state.symbols.push(s);state.selected=s;state.candles={};state.liveKlines={};els.input.value='';persist();renderWatchlist();connectTicker();connectKlines();await analyzeSelected()}catch{alert('Không tìm thấy cặp coin này trên Binance Spot hoặc Binance đang chặn kết nối từ mạng hiện tại.')}finally{els.add.disabled=false}}
 function setMode(m){state.mode=m;state.chartTf='4h';els.swing.classList.toggle('active',m==='swing');els.short.classList.toggle('active',m==='short');updateTimeframeButtons();persist();analyzeSelected()}
 els.swing.onclick=()=>setMode('swing');els.short.onclick=()=>setMode('short');els.add.onclick=addSymbol;els.input.addEventListener('keydown',e=>{if(e.key==='Enter')addSymbol()});els.refresh.onclick=analyzeSelected;els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>setChartTimeframe(b.dataset.tf)));window.addEventListener('resize',()=>{if(state.candles?.[state.chartTf])drawChart(state.candles[state.chartTf],state.analysis||{})});
+window.addEventListener('pagehide',()=>{try{state.klineWs?.close()}catch{};try{state.ws?.close()}catch{}});
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.deferredPrompt=e;els.install.classList.remove('hidden')});els.install.onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;els.install.classList.add('hidden')}};
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 
 (async function init(){
-  if(!state.symbols.includes(state.selected))state.selected=state.symbols[0]||'BTCUSDT';if(state.mode==='short') state.chartTf='4h';els.swing.classList.toggle('active',state.mode==='swing');els.short.classList.toggle('active',state.mode==='short');updateTimeframeButtons();renderWatchlist();renderSelectedTicker();connectTicker();
+  if(!state.symbols.includes(state.selected))state.selected=state.symbols[0]||'BTCUSDT';if(state.mode==='short') state.chartTf='4h';els.swing.classList.toggle('active',state.mode==='swing');els.short.classList.toggle('active',state.mode==='short');updateTimeframeButtons();renderWatchlist();renderSelectedTicker();connectTicker();connectKlines();
   try{let t=await validateSymbol(state.selected);state.tickers.set(state.selected,{price:t.price,change:t.change});renderWatchlist();renderSelectedTicker()}catch{}
   analyzeSelected();
 })();
