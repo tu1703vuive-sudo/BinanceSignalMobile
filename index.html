@@ -10,12 +10,12 @@
   <title>Binance Signal</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <link rel="stylesheet" href="./styles.css?v=212m2" />
+  <link rel="stylesheet" href="./styles.css?v=212m3" />
 </head>
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">BINANCE SIGNAL · MOBILE ROWS</div>
+      <div class="eyebrow">BINANCE SIGNAL · WATCH PLAN</div>
       <h1>Market Monitor</h1>
     </div>
     <div id="connStatus" class="status-pill offline"><span class="dot"></span><span>Đang kết nối</span></div>
@@ -62,6 +62,20 @@
           </div>
 
           <div id="planHint" class="plan-hint">Đang tải dữ liệu...</div>
+
+          <div class="inline-plan">
+            <div id="inlinePlanTitle" class="inline-plan-title">WAIT · KẾ HOẠCH</div>
+            <div class="metrics inline-plan-metrics">
+              <div><span>Entry / Vùng canh</span><strong id="entryValue">--</strong></div>
+              <div><span>Stop Loss</span><strong id="slValue">--</strong></div>
+              <div><span>TP1</span><strong id="tp1Value">--</strong></div>
+              <div><span>TP2</span><strong id="tp2Value">--</strong></div>
+              <div><span>TP3</span><strong id="tp3Value">--</strong></div>
+              <div><span>Invalidation</span><strong id="invalidValue">--</strong></div>
+            </div>
+            <div id="triggerText" class="subnote inline-plan-note"></div>
+            <div id="breakoutText" class="subnote inline-plan-note"></div>
+          </div>
         </div>
 
         <div class="chart-card card">
@@ -79,20 +93,6 @@
         </div>
 
         <div class="grid-2">
-          <div class="card plan-card">
-            <div class="section-title">Kế hoạch</div>
-            <div class="metrics">
-              <div><span>Entry</span><strong id="entryValue">--</strong></div>
-              <div><span>Stop Loss</span><strong id="slValue">--</strong></div>
-              <div><span>TP1</span><strong id="tp1Value">--</strong></div>
-              <div><span>TP2</span><strong id="tp2Value">--</strong></div>
-              <div><span>TP3</span><strong id="tp3Value">--</strong></div>
-              <div><span>Invalidation</span><strong id="invalidValue">--</strong></div>
-            </div>
-            <div id="triggerText" class="subnote"></div>
-            <div id="breakoutText" class="subnote"></div>
-          </div>
-
           <div class="card levels-card">
             <div class="section-title">Hỗ trợ / Kháng cự</div>
             <div class="levels-cols">
@@ -126,6 +126,6 @@
     </section>
   </main>
 
-  <script src="./app.js?v=212m2" defer></script>
+  <script src="./app.js?v=212m3" defer></script>
 </body>
 </html>

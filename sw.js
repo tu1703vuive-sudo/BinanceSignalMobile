@@ -1,5 +1,5 @@
-const CACHE='binance-signal-pwa-v2-12-mobile-rows-m2';
-const ASSETS=['./','./index.html','./styles.css?v=212m2','./app.js?v=212m2','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE='binance-signal-v2-12-watch-plan-inline-m3';
+const ASSETS=['./','./index.html','./styles.css?v=212m3','./app.js?v=212m3','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{

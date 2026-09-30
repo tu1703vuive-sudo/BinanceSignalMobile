@@ -30,3 +30,15 @@ Watchlist đã được chuyển về dạng danh sách dọc:
 - không cuộn ngang
 - giữ nguyên thêm/xóa coin, favorite, realtime
 - giữ nguyên mini chart và toàn bộ app.js
+
+
+## Watch + Plan Inline
+
+Đã gộp card Kế hoạch vào ngay dưới tín hiệu:
+- WATCH LONG → `WATCH LONG · KẾ HOẠCH`
+- WATCH SHORT → `WATCH SHORT · KẾ HOẠCH`
+- LONG / SHORT tương tự
+- Entry/Vùng canh nằm đầu tiên
+- SL và TP nằm ngay bên dưới
+- Không còn card Kế hoạch riêng phía dưới chart
+- Không thay đổi engine tín hiệu
