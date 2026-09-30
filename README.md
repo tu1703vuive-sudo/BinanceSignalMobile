@@ -1,3 +1,25 @@
+# BinanceSignalMobile v3.2.0 — Short Engine V2.2
+
+Bản này được nâng cấp trực tiếp từ source production hiện tại, giữ nguyên giao diện và cấu trúc GitHub Pages/PWA.
+
+## Nâng cấp v3.2.0
+
+- Short Engine canonical: `15m + 1h + 4h`.
+- Trọng số tín hiệu: `15m 20% + 1h 35% + 4h 45%`.
+- Loại hoàn toàn `5m` khỏi dữ liệu phân tích Short và Support/Resistance.
+- Short S/R chỉ còn: `4H + 1H + 15m`.
+- Giữ nguyên Swing Engine.
+- Giữ nguyên watchlist, favorite, coin đang chọn và localStorage hiện tại.
+- Giữ nguyên UI.
+- Bump asset/cache version để GitHub Pages/PWA lấy `app.js` mới thay vì giữ cache cũ.
+- Version code:
+  - `APP_VERSION = 3.2.0`
+  - `ENGINE_VERSION = short-v2.2`
+
+> Upload toàn bộ nội dung thư mục/ZIP này vào ROOT branch đang publish GitHub Pages.
+
+---
+
 # BinanceSignalMobile V2.12 — Mobile Original
 
 Bản này khôi phục đúng cấu trúc/chức năng WebPWA V2.12 từ file người dùng cung cấp.
