@@ -10,12 +10,12 @@
   <title>Binance Signal</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <link rel="stylesheet" href="./styles.css?v=212m3" />
+  <link rel="stylesheet" href="./styles.css?v=212m5" />
 </head>
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">BINANCE SIGNAL · WATCH PLAN</div>
+      <div class="eyebrow">BINANCE SIGNAL · FUTURES</div>
       <h1>Market Monitor</h1>
     </div>
     <div id="connStatus" class="status-pill offline"><span class="dot"></span><span>Đang kết nối</span></div>
@@ -23,9 +23,10 @@
 
   <main class="shell">
     <section class="toolbar card">
-      <div class="segmented" role="tablist">
-        <button id="modeSwing" class="seg-btn active" data-mode="swing">Dài hạn</button>
-        <button id="modeShort" class="seg-btn" data-mode="short">Ngắn hạn</button>
+      <div class="market-caption mode-caption">CHẾ ĐỘ PHÂN TÍCH</div>
+      <div class="segmented" role="tablist" aria-label="Chọn chế độ phân tích">
+        <button id="modeSwing" class="seg-btn" data-mode="swing">Dài hạn</button>
+        <button id="modeShort" class="seg-btn active" data-mode="short">Ngắn hạn</button>
       </div>
       <div class="toolbar-row">
         <input id="symbolInput" inputmode="latin" autocomplete="off" placeholder="VD: XRPUSDT" maxlength="20" />
@@ -126,6 +127,6 @@
     </section>
   </main>
 
-  <script src="./app.js?v=212m3" defer></script>
+  <script src="./app.js?v=212m5" defer></script>
 </body>
 </html>

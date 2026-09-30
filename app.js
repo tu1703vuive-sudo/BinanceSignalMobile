@@ -1,20 +1,50 @@
 'use strict';
 
-const API_BASES=['https://api.binance.com','https://api1.binance.com','https://api2.binance.com','https://api3.binance.com'];
-const WS_BASE='wss://stream.binance.com:9443/stream?streams=';
+const MARKET_CONFIG={
+  futures:{
+    label:'FUTURES',
+    apiBases:['https://fapi.binance.com'],
+    wsBase:'wss://fstream.binance.com/market/stream?streams=',
+    klinesPath:'/fapi/v1/klines',
+    ticker24Path:'/fapi/v1/ticker/24hr'
+  }
+};
 const DEFAULT_SYMBOLS=['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT'];
 const CHART_TIMEFRAMES=['15m','1h','4h','12h','1d','1w','1M'];
 const ANALYSIS_TIMEFRAMES={swing:['1M','1w','1d','12h','4h'],short:['5m','15m','1h','4h']};
-const storedMode=localStorage.getItem('bsm_mode')||'swing';
+const storedMode=localStorage.getItem('bsm_mode')||'short';
+const storedMarket='futures';
+
+function safeJson(value,fallback){try{let x=JSON.parse(value);return x??fallback}catch{return fallback}}
+function marketStoreKey(name,market){return `bsm_${name}_${market}`}
+function loadMarketData(market){
+  const symbols=safeJson(localStorage.getItem(marketStoreKey('symbols',market))||'null',null)||[...DEFAULT_SYMBOLS];
+  const favorites=safeJson(localStorage.getItem(marketStoreKey('favorites',market))||'null',null)||['BTCUSDT'];
+  let selected=localStorage.getItem(marketStoreKey('selected',market))||symbols[0]||'BTCUSDT';
+  if(!symbols.includes(selected))selected=symbols[0]||'BTCUSDT';
+  return{symbols:[...new Set(symbols)],favorites:new Set(favorites),selected};
+}
+const initialMarket='futures';
+const initialMarketData=loadMarketData(initialMarket);
 const state={
+  market:'futures',
   mode:storedMode,
   chartTf:localStorage.getItem('bsm_chart_tf')||'4h',
-  symbols:JSON.parse(localStorage.getItem('bsm_symbols')||'null')||DEFAULT_SYMBOLS,
-  favorites:new Set(JSON.parse(localStorage.getItem('bsm_favorites')||'["BTCUSDT"]')),
-  selected:localStorage.getItem('bsm_selected')||'BTCUSDT',
-  tickers:new Map(), candles:new Map(), liveKlines:{}, ws:null, klineWs:null, klineReconnectTimer:null, analysis:null, deferredPrompt:null
+  symbols:initialMarketData.symbols,
+  favorites:initialMarketData.favorites,
+  selected:initialMarketData.selected,
+  tickers:new Map(), candles:new Map(), liveKlines:{}, ws:null, klineWs:null, klineReconnectTimer:null, analysis:null, deferredPrompt:null,
+  analysisToken:0
 };
 if(!CHART_TIMEFRAMES.includes(state.chartTf)) state.chartTf='4h';
+const DEFAULT_MODE_VERSION='short-default-v1';
+if(localStorage.getItem('bsm_mode_default_version')!==DEFAULT_MODE_VERSION){
+  state.mode='short';
+  state.chartTf='4h';
+  localStorage.setItem('bsm_mode','short');
+  localStorage.setItem('bsm_mode_default_version',DEFAULT_MODE_VERSION);
+}
+
 
 const $=id=>document.getElementById(id);
 const els={
@@ -26,9 +56,15 @@ const els={
 };
 
 function persist(){
-  localStorage.setItem('bsm_mode',state.mode); localStorage.setItem('bsm_chart_tf',state.chartTf); localStorage.setItem('bsm_symbols',JSON.stringify(state.symbols));
-  localStorage.setItem('bsm_favorites',JSON.stringify([...state.favorites])); localStorage.setItem('bsm_selected',state.selected);
+  localStorage.setItem('bsm_market','futures');
+  localStorage.setItem('bsm_mode',state.mode);
+  localStorage.setItem('bsm_chart_tf',state.chartTf);
+  localStorage.setItem(marketStoreKey('symbols','futures'),JSON.stringify(state.symbols));
+  localStorage.setItem(marketStoreKey('favorites','futures'),JSON.stringify([...state.favorites]));
+  localStorage.setItem(marketStoreKey('selected','futures'),state.selected);
 }
+function marketCfg(market='futures'){return MARKET_CONFIG.futures}
+function marketLabel(){return 'FUTURES'}
 function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
 function avg(arr){return arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:0;}
 function fmt(n){ if(n==null||!Number.isFinite(n)) return '--'; const a=Math.abs(n); let d=a>=1000?2:a>=1?4:a>=.01?6:8; return n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:d}); }
@@ -364,8 +400,24 @@ function analyzeShort(data){
 
 function basicWait(mode,msg){return{kind:'WAIT',score:0,mode,timeframes:'--',reasons:[msg],supports:[],resistances:[],hint:'WAIT - đang chờ đủ dữ liệu.'}}
 
-async function apiFetch(path){let last;for(let base of API_BASES){try{let r=await fetch(base+path,{cache:'no-store'});if(!r.ok)throw new Error(`${r.status}`);return await r.json()}catch(e){last=e}}throw last||new Error('Không kết nối được Binance')}
-async function getKlines(symbol,interval,limit=260){let rows=await apiFetch(`/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`);return rows.map(r=>({openTime:+r[0],open:+r[1],high:+r[2],low:+r[3],close:+r[4],volume:+r[5],closeTime:+r[6]}))}
+async function apiFetch(path,market=state.market){
+  let last,cfg=marketCfg(market);
+  for(let base of cfg.apiBases){
+    try{
+      let controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
+      let r=await fetch(base+path,{cache:'no-store',signal:controller.signal});
+      clearTimeout(timer);
+      if(!r.ok)throw new Error(`${r.status}`);
+      return await r.json();
+    }catch(e){last=e}
+  }
+  throw last||new Error(`Không kết nối được Binance ${marketLabel(market)}`);
+}
+async function getKlines(symbol,interval,limit=260,market=state.market){
+  let cfg=marketCfg(market);
+  let rows=await apiFetch(`${cfg.klinesPath}?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`,market);
+  return rows.map(r=>({openTime:+r[0],open:+r[1],high:+r[2],low:+r[3],close:+r[4],volume:+r[5],closeTime:+r[6]}));
+}
 
 function mergeLiveCandle(interval,candles){
   let live=state.liveKlines?.[interval]; if(!live)return candles;
@@ -389,10 +441,12 @@ function connectKlines(){
   if(state.klineReconnectTimer){clearTimeout(state.klineReconnectTimer);state.klineReconnectTimer=null}
   if(state.klineWs){try{state.klineWs.onclose=null;state.klineWs.close()}catch{}state.klineWs=null}
   let symbol=(state.selected||'').toLowerCase(); if(!symbol)return;
+  let marketAtConnect=state.market,selectedAtConnect=state.selected,cfg=marketCfg(marketAtConnect);
   let streams=CHART_TIMEFRAMES.map(tf=>`${symbol}@kline_${tf}`).join('/');
-  let ws=new WebSocket(WS_BASE+streams); state.klineWs=ws;
+  let ws=new WebSocket(cfg.wsBase+streams); state.klineWs=ws;
   ws.onmessage=e=>{try{
-    let payload=JSON.parse(e.data),d=payload.data||payload,k=d.k;if(!k||d.s!==state.selected)return;
+    if(state.market!==marketAtConnect||state.selected!==selectedAtConnect)return;
+    let payload=JSON.parse(e.data),d=payload.data||payload,k=d.k;if(!k||d.s!==selectedAtConnect)return;
     let candle={openTime:+k.t,open:+k.o,high:+k.h,low:+k.l,close:+k.c,volume:+k.v,closeTime:+k.T};
     applyLiveKline(k.i,candle);
     if(k.i===state.chartTf){
@@ -405,18 +459,30 @@ function connectKlines(){
   ws.onclose=()=>{if(state.klineWs===ws){state.klineReconnectTimer=setTimeout(connectKlines,1800)}};
   ws.onerror=()=>{};
 }
-async function validateSymbol(s){let j=await apiFetch(`/api/v3/ticker/24hr?symbol=${encodeURIComponent(s)}`);return{symbol:s,price:+j.lastPrice,change:+j.priceChangePercent}}
+async function validateSymbol(s,market=state.market){
+  let cfg=marketCfg(market);
+  let j=await apiFetch(`${cfg.ticker24Path}?symbol=${encodeURIComponent(s)}`,market);
+  return{symbol:s,price:+j.lastPrice,change:+j.priceChangePercent};
+}
 
 function connectTicker(){
-  if(state.ws){try{state.ws.close()}catch{}}
-  if(!state.symbols.length)return;let streams=state.symbols.map(s=>`${s.toLowerCase()}@miniTicker`).join('/');
-  let ws=new WebSocket(WS_BASE+streams);state.ws=ws;setConn('connecting');
-  ws.onopen=()=>setConn('online');ws.onmessage=e=>{try{let d=JSON.parse(e.data).data,s=d.s,p=+d.c,o=+d.o,ch=o?((p-o)/o*100):0;state.tickers.set(s,{price:p,change:ch});renderWatchlist();if(s===state.selected)renderSelectedTicker()}catch{}};
-  ws.onerror=()=>setConn('offline');ws.onclose=()=>{setConn('offline');setTimeout(()=>{if(state.ws===ws)connectTicker()},2500)};
+  if(state.ws){try{state.ws.onclose=null;state.ws.close()}catch{}}
+  if(!state.symbols.length)return;
+  let marketAtConnect=state.market,cfg=marketCfg(marketAtConnect),streams=state.symbols.map(s=>`${s.toLowerCase()}@miniTicker`).join('/');
+  let ws=new WebSocket(cfg.wsBase+streams);state.ws=ws;setConn('connecting');
+  ws.onopen=()=>{if(state.market===marketAtConnect)setConn('online')};
+  ws.onmessage=e=>{try{
+    if(state.market!==marketAtConnect)return;
+    let payload=JSON.parse(e.data),d=payload.data||payload,s=d.s,p=+d.c,o=+d.o,ch=o?((p-o)/o*100):0;
+    if(!s)return;
+    state.tickers.set(s,{price:p,change:ch});renderWatchlist();if(s===state.selected)renderSelectedTicker();
+  }catch{}};
+  ws.onerror=()=>{if(state.market===marketAtConnect)setConn('offline')};
+  ws.onclose=()=>{if(state.ws===ws&&state.market===marketAtConnect){setConn('offline');setTimeout(()=>{if(state.ws===ws)connectTicker()},2500)}};
 }
 function setConn(s){els.conn.classList.toggle('online',s==='online');els.conn.classList.toggle('offline',s==='offline');els.conn.querySelector('span:last-child').textContent=s==='online'?'Realtime':s==='connecting'?'Đang kết nối':'Mất kết nối'}
 function renderWatchlist(){
-  els.count.textContent=`${state.symbols.length} cặp`;let syms=[...state.symbols].sort((a,b)=>(state.favorites.has(b)-state.favorites.has(a))||a.localeCompare(b));
+  els.count.textContent=`${state.symbols.length} cặp · ${marketLabel()}`;let syms=[...state.symbols].sort((a,b)=>(state.favorites.has(b)-state.favorites.has(a))||a.localeCompare(b));
   els.watch.innerHTML=syms.map(s=>{let t=state.tickers.get(s),active=s===state.selected?' active':'',fav=state.favorites.has(s)?' on':'';return `<div class="watch-item${active}" data-symbol="${s}"><button class="star${fav}" data-star="${s}" aria-label="Yêu thích">★</button><div><div class="wi-symbol">${s.replace('USDT','/USDT')}</div><div class="wi-change ${t&&t.change>=0?'up':'down'}">${t?pct(t.change):'--'}</div></div><div class="wi-price">${t?fmt(t.price):'--'}</div><button class="delete-coin" data-delete="${s}" aria-label="Xóa ${s}" title="Xóa coin">×</button></div>`}).join('');
   els.watch.querySelectorAll('[data-symbol]').forEach(x=>x.addEventListener('click',e=>{if(e.target.closest('[data-star],[data-delete]'))return;selectSymbol(x.dataset.symbol)}));
   els.watch.querySelectorAll('[data-star]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();let s=b.dataset.star;state.favorites.has(s)?state.favorites.delete(s):state.favorites.add(s);persist();renderWatchlist()}));
@@ -425,7 +491,7 @@ function renderWatchlist(){
 function renderSelectedTicker(){let t=state.tickers.get(state.selected);els.symbol.textContent=state.selected;els.price.textContent=t?fmt(t.price):'--';els.change.textContent=t?pct(t.change):'--';els.change.className='change '+(t&&t.change>=0?'up':'down')}
 function signalClass(k){return k==='LONG'?'long':k==='SHORT'?'short':k.startsWith('WATCH')?'watch':'wait'}
 function renderAnalysis(a){
-  state.analysis=a;els.mode.textContent=a.mode;els.badge.textContent=a.kind;els.badge.className=`signal ${signalClass(a.kind)}`;els.score.textContent=`Score ${a.score>=0?'+':''}${a.score}`;els.tf.textContent=a.timeframes;els.hint.textContent=a.hint||'--';if(els.planTitle)els.planTitle.textContent=`${a.kind} · KẾ HOẠCH`;els.updated.textContent=new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
+  state.analysis=a;els.mode.textContent=`${marketLabel()} · ${a.mode}`;els.badge.textContent=a.kind;els.badge.className=`signal ${signalClass(a.kind)}`;els.score.textContent=`Score ${a.score>=0?'+':''}${a.score}`;els.tf.textContent=a.timeframes;els.hint.textContent=a.hint||'--';if(els.planTitle)els.planTitle.textContent=`${a.kind} · KẾ HOẠCH`;els.updated.textContent=new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
   els.entry.textContent=a.entryLow!=null?`${fmt(a.entryLow)} – ${fmt(a.entryHigh)}`:(a.watchLow!=null?`Canh ${fmt(a.watchLow)} – ${fmt(a.watchHigh)}`:'--');els.sl.textContent=fmt(a.sl);els.tp1.textContent=fmt(a.tp1);els.tp2.textContent=fmt(a.tp2);els.tp3.textContent=fmt(a.tp3);els.invalid.textContent=a.invalid||'--';els.trigger.textContent=a.trigger||'';els.breakout.textContent=a.breakout||'';
   els.supports.innerHTML=(a.supports||[]).map(z=>`<div class="level"><strong>${fmt(z.low)} – ${fmt(z.high)}</strong><small>${z.frames.join('+')} • ${z.strength}</small></div>`).join('')||'<div class="muted">--</div>';
   els.resistances.innerHTML=(a.resistances||[]).map(z=>`<div class="level"><strong>${fmt(z.low)} – ${fmt(z.high)}</strong><small>${z.frames.join('+')} • ${z.strength}</small></div>`).join('')||'<div class="muted">--</div>';
@@ -455,14 +521,22 @@ async function setChartTimeframe(tf){
   }
 }
 async function analyzeSelected(){
-  renderSelectedTicker();els.hint.textContent='Đang tải dữ liệu Binance và phân tích...';els.refresh.disabled=true;
+  const token=++state.analysisToken,requestMarket=state.market,requestSymbol=state.selected,requestMode=state.mode,requestChartTf=state.chartTf;
+  renderSelectedTicker();els.hint.textContent=`Đang tải Binance ${marketLabel(requestMarket)} và phân tích...`;els.refresh.disabled=true;
   try{
-    let analysisIntervals=ANALYSIS_TIMEFRAMES[state.mode]||ANALYSIS_TIMEFRAMES.short;
-    let intervals=[...new Set([...analysisIntervals,state.chartTf])];
-    let data={};await Promise.all(intervals.map(async i=>{data[i]=mergeLiveCandle(i,await getKlines(state.selected,i,260))}));state.candles=data;
-    let a=state.mode==='swing'?analyzeSwing(data):analyzeShort(data);renderAnalysis(a);updateTimeframeButtons();els.chartTitle.textContent=`${state.selected} • ${chartTfLabel(state.chartTf)}`;drawChart(data[state.chartTf],a);
-  }catch(e){renderAnalysis(basicWait(state.mode==='swing'?'DÀI HẠN':'NGẮN HẠN',`Không tải được Binance: ${e.message||e}`));}
-  finally{els.refresh.disabled=false}
+    let analysisIntervals=ANALYSIS_TIMEFRAMES[requestMode]||ANALYSIS_TIMEFRAMES.short;
+    let intervals=[...new Set([...analysisIntervals,requestChartTf])];
+    let data={};
+    await Promise.all(intervals.map(async i=>{data[i]=mergeLiveCandle(i,await getKlines(requestSymbol,i,260,requestMarket))}));
+    if(token!==state.analysisToken||requestMarket!==state.market||requestSymbol!==state.selected||requestMode!==state.mode||requestChartTf!==state.chartTf)return;
+    state.candles=data;
+    let a=requestMode==='swing'?analyzeSwing(data):analyzeShort(data);
+    renderAnalysis(a);updateTimeframeButtons();els.chartTitle.textContent=`${requestSymbol} · ${marketLabel(requestMarket)} • ${chartTfLabel(requestChartTf)}`;drawChart(data[requestChartTf],a);
+  }catch(e){
+    if(token===state.analysisToken&&requestMarket===state.market){
+      renderAnalysis(basicWait(requestMode==='swing'?'DÀI HẠN':'NGẮN HẠN',`Không tải được Binance ${marketLabel(requestMarket)}: ${e.message||e}`));
+    }
+  }finally{if(token===state.analysisToken)els.refresh.disabled=false}
 }
 function drawChart(candles,a){
   const cvs=els.canvas,ctx=cvs.getContext('2d');let dpr=window.devicePixelRatio||1,w=cvs.clientWidth,h=cvs.clientHeight;cvs.width=Math.floor(w*dpr);cvs.height=Math.floor(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);ctx.fillStyle='#060a0f';ctx.fillRect(0,0,w,h);
@@ -489,7 +563,7 @@ async function removeSymbol(s){
   let wasSelected=state.selected===s;state.symbols=state.symbols.filter(x=>x!==s);state.favorites.delete(s);state.tickers.delete(s);
   if(wasSelected)state.selected=state.symbols[0];state.candles={};if(wasSelected)state.liveKlines={};persist();renderWatchlist();renderSelectedTicker();connectTicker();if(wasSelected){connectKlines();await analyzeSelected();}
 }
-async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim();if(!s)return;if(!s.endsWith('USDT'))s+='USDT';els.add.disabled=true;try{let t=await validateSymbol(s);state.tickers.set(s,{price:t.price,change:t.change});if(!state.symbols.includes(s))state.symbols.push(s);state.selected=s;state.candles={};state.liveKlines={};els.input.value='';persist();renderWatchlist();connectTicker();connectKlines();await analyzeSelected()}catch{alert('Không tìm thấy cặp coin này trên Binance Spot hoặc Binance đang chặn kết nối từ mạng hiện tại.')}finally{els.add.disabled=false}}
+async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim();if(!s)return;if(!s.endsWith('USDT'))s+='USDT';els.add.disabled=true;try{let t=await validateSymbol(s,state.market);state.tickers.set(s,{price:t.price,change:t.change});if(!state.symbols.includes(s))state.symbols.push(s);state.selected=s;state.candles={};state.liveKlines={};els.input.value='';persist();renderWatchlist();connectTicker();connectKlines();await analyzeSelected()}catch{alert(`Không tìm thấy ${s} trên Binance USDⓈ-M Futures hoặc Binance đang chặn kết nối từ mạng hiện tại.`)}finally{els.add.disabled=false}}
 function setMode(m){state.mode=m;state.chartTf='4h';els.swing.classList.toggle('active',m==='swing');els.short.classList.toggle('active',m==='short');updateTimeframeButtons();persist();analyzeSelected()}
 els.swing.onclick=()=>setMode('swing');els.short.onclick=()=>setMode('short');els.add.onclick=addSymbol;els.input.addEventListener('keydown',e=>{if(e.key==='Enter')addSymbol()});els.refresh.onclick=analyzeSelected;els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>setChartTimeframe(b.dataset.tf)));window.addEventListener('resize',()=>{if(state.candles?.[state.chartTf])drawChart(state.candles[state.chartTf],state.analysis||{})});
 window.addEventListener('pagehide',()=>{try{state.klineWs?.close()}catch{};try{state.ws?.close()}catch{}});
@@ -497,7 +571,10 @@ window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.defer
 if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{let r=await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'});await r.update()}catch{}});
 
 (async function init(){
-  if(!state.symbols.includes(state.selected))state.selected=state.symbols[0]||'BTCUSDT';if(state.mode==='short') state.chartTf='4h';els.swing.classList.toggle('active',state.mode==='swing');els.short.classList.toggle('active',state.mode==='short');updateTimeframeButtons();renderWatchlist();renderSelectedTicker();connectTicker();connectKlines();
-  try{let t=await validateSymbol(state.selected);state.tickers.set(state.selected,{price:t.price,change:t.change});renderWatchlist();renderSelectedTicker()}catch{}
+  if(!state.symbols.includes(state.selected))state.selected=state.symbols[0]||'BTCUSDT';
+  if(state.mode==='short') state.chartTf='4h';
+  els.swing.classList.toggle('active',state.mode==='swing');els.short.classList.toggle('active',state.mode==='short');
+  updateTimeframeButtons();renderWatchlist();renderSelectedTicker();connectTicker();connectKlines();
+  try{let t=await validateSymbol(state.selected,state.market);state.tickers.set(state.selected,{price:t.price,change:t.change});renderWatchlist();renderSelectedTicker()}catch{}
   analyzeSelected();
 })();

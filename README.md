@@ -42,3 +42,41 @@ Watchlist đã được chuyển về dạng danh sách dọc:
 - SL và TP nằm ngay bên dưới
 - Không còn card Kế hoạch riêng phía dưới chart
 - Không thay đổi engine tín hiệu
+
+
+## SPOT + FUTURES
+
+Đã thêm công tắc dữ liệu:
+- SPOT: Binance Spot public REST/WebSocket
+- FUTURES: Binance USDⓈ-M Futures public REST/WebSocket
+
+Khi chuyển thị trường, toàn bộ dữ liệu chuyển đồng bộ:
+- giá realtime
+- watchlist
+- mini chart
+- nến phân tích
+- Support / Resistance
+- LONG / SHORT / WATCH
+- Entry / SL / TP
+
+Mỗi thị trường lưu riêng:
+- danh sách coin
+- favorite
+- coin đang chọn
+
+Không cần API key vì chỉ dùng public market data.
+
+
+## FUTURES ONLY + SHORT DEFAULT
+
+Thay đổi:
+- Bỏ hoàn toàn SPOT khỏi giao diện và code chạy chính.
+- Tất cả dữ liệu chỉ lấy từ Binance USDⓈ-M Futures.
+- REST:
+  - `/fapi/v1/klines`
+  - `/fapi/v1/ticker/24hr`
+- WebSocket:
+  - `wss://fstream.binance.com/market/stream`
+- Ngắn hạn là chế độ mặc định khi mở bản này lần đầu.
+- Người dùng vẫn có thể chuyển thủ công sang Dài hạn.
+- Watchlist/favorite/coin đang chọn dùng bộ nhớ Futures riêng.
