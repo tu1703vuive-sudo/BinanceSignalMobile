@@ -21,3 +21,12 @@ Chỉ thay:
 - Cache version/service worker để tránh giữ UI cũ
 
 Upload toàn bộ file trong thư mục này vào ROOT của GitHub Pages.
+
+
+## Watchlist Rows update
+
+Watchlist đã được chuyển về dạng danh sách dọc:
+- 1 coin = 1 hàng
+- không cuộn ngang
+- giữ nguyên thêm/xóa coin, favorite, realtime
+- giữ nguyên mini chart và toàn bộ app.js

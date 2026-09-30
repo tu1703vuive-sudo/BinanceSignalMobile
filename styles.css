@@ -206,7 +206,7 @@ h1{
   gap:10px!important;
 }
 
-/* WATCHLIST becomes horizontal mobile rail */
+/* WATCHLIST — vertical rows, like the original behavior */
 .watchlist{
   padding:12px;
   min-width:0;
@@ -223,27 +223,22 @@ h1{
   letter-spacing:.01em;
 }
 .watch-items{
-  display:flex!important;
-  flex-direction:row!important;
-  gap:8px!important;
-  overflow-x:auto!important;
-  overflow-y:hidden!important;
-  padding:1px 1px 5px;
-  scroll-snap-type:x proximity;
-  -webkit-overflow-scrolling:touch;
-  scrollbar-width:thin;
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr)!important;
+  gap:7px!important;
+  overflow:visible!important;
+  padding:0!important;
 }
 .watch-item{
   position:relative;
-  flex:0 0 176px!important;
-  min-width:176px!important;
+  width:100%!important;
+  min-width:0!important;
   display:grid!important;
-  grid-template-columns:23px minmax(0,1fr) auto 26px!important;
+  grid-template-columns:30px minmax(0,1fr) minmax(78px,auto) 32px!important;
   align-items:center!important;
-  gap:6px!important;
-  min-height:64px;
-  padding:9px 7px!important;
-  scroll-snap-align:start;
+  gap:8px!important;
+  min-height:58px;
+  padding:9px 8px!important;
   border:1px solid #243247;
   border-radius:12px;
   background:#0a1017;
@@ -254,17 +249,42 @@ h1{
   box-shadow:inset 0 0 0 1px rgba(240,185,11,.10);
 }
 .star,.delete-coin{
-  width:23px;height:30px;padding:0;
+  width:30px;
+  height:34px;
+  padding:0;
   border:0;
   color:#58697d;
   background:transparent;
-  font-size:17px;
+  font-size:18px;
 }
 .star.on{color:var(--accent)}
-.delete-coin{font-size:22px;color:#6f7e91}
-.wi-symbol{font-size:11px;font-weight:900}
-.wi-change{margin-top:3px;font-size:10px;font-weight:850}
-.wi-price{text-align:right;font-size:11px;font-weight:850;font-variant-numeric:tabular-nums}
+.delete-coin{
+  font-size:22px;
+  color:#6f7e91;
+}
+.wi-symbol{
+  min-width:0;
+  font-size:12px;
+  font-weight:900;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.wi-change{
+  margin-top:3px;
+  font-size:10px;
+  font-weight:850;
+}
+.wi-price{
+  min-width:0;
+  text-align:right;
+  font-size:11px;
+  font-weight:850;
+  font-variant-numeric:tabular-nums;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
 
 /* HERO */
 .hero{padding:14px}
@@ -457,7 +477,6 @@ h1{
   .shell{padding-left:7px;padding-right:7px}
   .topbar{padding-left:9px;padding-right:9px}
   .toolbar-row{grid-template-columns:minmax(0,1fr) 70px 42px}
-  .watch-item{flex-basis:164px!important;min-width:164px!important}
   .metrics{grid-template-columns:1fr!important}
   #chartCanvas{height:245px!important;min-height:245px!important}
   .status-pill span:last-child{display:none}
