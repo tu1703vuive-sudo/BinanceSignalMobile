@@ -150,3 +150,9 @@ Thay đổi:
 - Ngắn hạn là chế độ mặc định khi mở bản này lần đầu.
 - Người dùng vẫn có thể chuyển thủ công sang Dài hạn.
 - Watchlist/favorite/coin đang chọn dùng bộ nhớ Futures riêng.
+
+## v3.2.5 — Indicator Settings
+- Adds a gear icon on the mini chart for visual layer controls.
+- Toggle RSI 14, Volume, S/R, Entry/SL/TP and Crosshair/OHLC.
+- Includes Tối giản / Trading / Đầy đủ presets.
+- Settings are remembered locally and do not modify the signal engine.

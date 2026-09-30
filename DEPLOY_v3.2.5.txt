@@ -1,0 +1,17 @@
+BinanceSignalMobile v3.2.5
+
+Upload/replace these files in the GitHub Pages repository root:
+- app.js
+- styles.css
+- index.html
+- sw.js
+
+Optional documentation:
+- CHANGELOG_v3.2.5.md
+
+After commit/deploy:
+1. Open the live site.
+2. Hard refresh once or open an incognito tab.
+3. Press the gear icon on the chart.
+4. Toggle RSI / Volume / S-R / Entry-SL-TP / Crosshair and verify the chart updates immediately.
+5. Reload the page and verify the selected display settings are preserved.

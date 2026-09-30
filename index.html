@@ -10,7 +10,7 @@
   <title>Binance Signal</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <link rel="stylesheet" href="./styles.css?v=324" />
+  <link rel="stylesheet" href="./styles.css?v=325" />
 </head>
 <body>
   <header class="topbar">
@@ -82,7 +82,21 @@
         <div class="chart-card card">
           <div class="section-title chart-title-row">
             <span id="chartTitle">Biểu đồ</span>
-            <span class="chart-head-right"><span id="chartLiveBadge" class="chart-live"><i></i><span>SYNC</span></span><span id="updatedAt" class="muted"></span></span>
+            <span class="chart-head-right">
+              <button id="chartSettingsBtn" class="chart-settings-btn" type="button" aria-label="Cài đặt hiển thị biểu đồ" aria-expanded="false" aria-controls="chartSettingsPanel">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Zm8.1 4.5-1.8-1.1c.1-.7.1-1.3 0-2l1.8-1.1-2-3.5-2 .9c-.5-.4-1.1-.7-1.7-1L14.2 3h-4.1l-.3 2.3c-.6.2-1.2.6-1.7 1l-2-.9-2 3.5L6 10c-.1.7-.1 1.3 0 2l-1.8 1.1 2 3.5 2-.9c.5.4 1.1.7 1.7 1l.3 2.3h4.1l.3-2.3c.6-.2 1.2-.6 1.7-1l2 .9 1.8-3.5Z"/></svg>
+              </button>
+              <span id="chartLiveBadge" class="chart-live"><i></i><span>SYNC</span></span><span id="updatedAt" class="muted"></span>
+            </span>
+            <div id="chartSettingsPanel" class="chart-settings-panel" role="dialog" aria-label="Cài đặt biểu đồ">
+              <div class="chart-settings-title"><strong>Hiển thị biểu đồ</strong><span>Chỉ thay đổi phần nhìn</span></div>
+              <div class="chart-presets"><button type="button" data-preset="minimal">Tối giản</button><button type="button" data-preset="trading">Trading</button><button type="button" data-preset="full">Đầy đủ</button></div>
+              <label class="chart-setting-row"><span><b>RSI 14</b><small>Panel động lượng</small></span><input type="checkbox" data-layer="rsi" checked><i></i></label>
+              <label class="chart-setting-row"><span><b>Volume</b><small>Khối lượng dưới nến</small></span><input type="checkbox" data-layer="volume" checked><i></i></label>
+              <label class="chart-setting-row"><span><b>Support / Resistance</b><small>Vùng S/R trên chart</small></span><input type="checkbox" data-layer="sr" checked><i></i></label>
+              <label class="chart-setting-row"><span><b>Entry / SL / TP</b><small>Vùng vào lệnh và mục tiêu</small></span><input type="checkbox" data-layer="trade" checked><i></i></label>
+              <label class="chart-setting-row"><span><b>Crosshair / OHLC</b><small>Thông tin khi rê hoặc chạm</small></span><input type="checkbox" data-layer="crosshair" checked><i></i></label>
+            </div>
           </div>
           <div id="timeframeSelector" class="timeframe-selector" aria-label="Khung thời gian biểu đồ">
             <button class="tf-btn" data-tf="15m">15m</button>
@@ -93,14 +107,14 @@
             <button class="tf-btn" data-tf="1w">1w</button>
             <button class="tf-btn" data-tf="1M">1M</button>
           </div>
-          <div class="chart-legend" aria-hidden="true">
-            <span><i class="legend-sr"></i>S/R</span><span><i class="legend-entry"></i>Entry</span><span><i class="legend-tp"></i>TP</span><span><i class="legend-sl"></i>SL</span>
+          <div id="chartLegend" class="chart-legend" aria-hidden="true">
+            <span data-legend="sr"><i class="legend-sr"></i>S/R</span><span data-legend="trade"><i class="legend-entry"></i>Entry</span><span data-legend="trade"><i class="legend-tp"></i>TP</span><span data-legend="trade"><i class="legend-sl"></i>SL</span>
           </div>
           <div class="chart-stage">
             <canvas id="chartCanvas" width="1200" height="560"></canvas>
             <div id="chartStats" class="chart-stats">-- nến · cache realtime</div>
           </div>
-          <div class="rsi-panel">
+          <div id="rsiPanel" class="rsi-panel">
             <div class="rsi-panel-head"><span>RSI (14)</span><strong id="rsiValue">--</strong></div>
             <div class="rsi-stage">
               <canvas id="rsiCanvas" width="1200" height="190" aria-label="RSI 14"></canvas>
@@ -142,6 +156,6 @@
     </section>
   </main>
 
-  <script src="./app.js?v=324" defer></script>
+  <script src="./app.js?v=325" defer></script>
 </body>
 </html>

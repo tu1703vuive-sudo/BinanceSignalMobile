@@ -335,7 +335,7 @@ h1{
   line-height:1.48;
 }
 
-/* CHART · v3.2.2 Mini Chart V2 */
+/* CHART · v3.2.5 Mini Chart V2 + Indicator Settings */
 .chart-card{
   padding:12px;
   overflow:hidden;
@@ -344,8 +344,34 @@ h1{
     radial-gradient(circle at 78% 0%,rgba(106,169,255,.07),transparent 34%),
     linear-gradient(180deg,rgba(16,24,34,.99),rgba(9,14,21,.99));
 }
-.chart-title-row{margin-bottom:9px}
+.chart-title-row{margin-bottom:9px;position:relative}
 .chart-head-right{display:flex;align-items:center;gap:7px;white-space:nowrap}
+.chart-settings-btn{
+  width:27px;height:27px;display:inline-grid;place-items:center;padding:0;border:1px solid #293b50;border-radius:9px;
+  color:#98aabe;background:linear-gradient(180deg,#111b27,#0a1119);box-shadow:inset 0 1px 0 rgba(255,255,255,.035);cursor:pointer;
+  transition:transform .16s ease,border-color .16s ease,color .16s ease,background .16s ease;
+}
+.chart-settings-btn:hover,.chart-settings-btn[aria-expanded="true"]{color:#f4c533;border-color:rgba(240,185,11,.42);background:rgba(240,185,11,.075)}
+.chart-settings-btn:active{transform:scale(.94)}
+.chart-settings-btn svg{width:15px;height:15px;fill:currentColor}
+.chart-settings-panel{
+  position:absolute;z-index:25;right:0;top:34px;width:min(300px,calc(100vw - 46px));padding:10px;border:1px solid #2a3d53;border-radius:13px;
+  background:rgba(8,14,21,.985);box-shadow:0 18px 44px rgba(0,0,0,.46),inset 0 1px 0 rgba(255,255,255,.04);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);opacity:0;visibility:hidden;transform:translateY(-6px) scale(.985);transform-origin:top right;
+  transition:opacity .15s ease,transform .15s ease,visibility .15s ease;
+}
+.chart-settings-panel.open{opacity:1;visibility:visible;transform:translateY(0) scale(1)}
+.chart-settings-title{display:flex;align-items:flex-end;justify-content:space-between;padding:1px 2px 8px;border-bottom:1px solid rgba(133,153,176,.11)}
+.chart-settings-title strong{font-size:10px;color:#e8eff7;letter-spacing:.025em}.chart-settings-title span{font-size:8px;color:#6e8298;font-weight:750}
+.chart-presets{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:8px 0}
+.chart-presets button{min-height:27px;padding:0 6px;border:1px solid #26384b;border-radius:8px;background:#0b141e;color:#8fa2b8;font-size:8px;font-weight:900;cursor:pointer}
+.chart-presets button:hover{color:#f5ca48;border-color:rgba(240,185,11,.34);background:rgba(240,185,11,.06)}
+.chart-setting-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 2px;cursor:pointer;user-select:none}
+.chart-setting-row>span{display:flex;min-width:0;flex-direction:column;gap:2px}.chart-setting-row b{color:#dbe5f0;font-size:9px}.chart-setting-row small{color:#708399;font-size:7.5px;font-weight:700}
+.chart-setting-row input{position:absolute;opacity:0;pointer-events:none}.chart-setting-row>i{position:relative;flex:0 0 auto;width:30px;height:17px;border-radius:999px;background:#172433;border:1px solid #2b3c4f;transition:.16s ease}
+.chart-setting-row>i:after{content:"";position:absolute;left:2px;top:2px;width:11px;height:11px;border-radius:50%;background:#718399;transition:.16s ease}
+.chart-setting-row input:checked+i{background:rgba(240,185,11,.16);border-color:rgba(240,185,11,.46)}.chart-setting-row input:checked+i:after{left:15px;background:#f0b90b;box-shadow:0 0 8px rgba(240,185,11,.28)}
+.indicator-hidden{display:none!important}
 .chart-live{
   display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;
   border:1px solid #26364a;border-radius:999px;color:#8293a8;background:#091018;

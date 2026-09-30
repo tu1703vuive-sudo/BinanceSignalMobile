@@ -1,7 +1,7 @@
 'use strict';
 
-const APP_VERSION='3.2.4';
-const CHART_INDICATOR_VERSION='rsi14-panel-v1';
+const APP_VERSION='3.2.5';
+const CHART_INDICATOR_VERSION='indicator-settings-v1';
 const DATA_ENGINE_VERSION='integrity-guard-v1';
 const ENGINE_VERSION='short-v2.2';
 const CANDLE_CACHE_LIMIT=300;
@@ -50,6 +50,13 @@ function loadMarketData(market){
 }
 const initialMarket='futures';
 const initialMarketData=loadMarketData(initialMarket);
+const DEFAULT_CHART_LAYERS=Object.freeze({rsi:true,volume:true,sr:true,trade:true,crosshair:true});
+function loadChartLayers(){
+  try{
+    let raw=JSON.parse(localStorage.getItem('bsm_chart_layers')||'{}');
+    return {...DEFAULT_CHART_LAYERS,...Object.fromEntries(Object.keys(DEFAULT_CHART_LAYERS).map(k=>[k,raw[k]!==false]))};
+  }catch{return {...DEFAULT_CHART_LAYERS}}
+}
 const state={
   market:'futures',
   mode:storedMode,
@@ -62,7 +69,8 @@ const state={
   ws:null, klineWs:null, klineReconnectTimer:null, tickerReconnectTimer:null,
   klineReconnectAttempt:0, tickerReconnectAttempt:0, tickerRenderTimer:null, chartRenderTimer:null, chartRenderQueued:false,
   chartLastRenderAt:0, chartHoverTime:null, analysis:null, deferredPrompt:null, analysisToken:0,
-  dataHealth:'syncing', dataHealthDetail:'', integrityResyncTimer:null, integrityResyncKey:null
+  dataHealth:'syncing', dataHealthDetail:'', integrityResyncTimer:null, integrityResyncKey:null,
+  chartLayers:loadChartLayers(), chartSettingsOpen:false
 };
 if(!CHART_TIMEFRAMES.includes(state.chartTf)) state.chartTf='4h';
 const DEFAULT_MODE_VERSION='short-default-v1';
@@ -80,13 +88,15 @@ const els={
   watch:$('watchList'), count:$('watchCount'), symbol:$('selectedSymbol'), mode:$('modeLabel'), price:$('selectedPrice'), change:$('selectedChange'),
   badge:$('signalBadge'), score:$('scoreText'), tf:$('timeframes'), hint:$('planHint'), planTitle:$('inlinePlanTitle'), canvas:$('chartCanvas'), rsiCanvas:$('rsiCanvas'), rsiValue:$('rsiValue'), chartTitle:$('chartTitle'), updated:$('updatedAt'), chartStats:$('chartStats'), chartLive:$('chartLiveBadge'),
   entry:$('entryValue'), sl:$('slValue'), tp1:$('tp1Value'), tp2:$('tp2Value'), tp3:$('tp3Value'), invalid:$('invalidValue'), trigger:$('triggerText'), breakout:$('breakoutText'),
-  supports:$('supportList'), resistances:$('resistanceList'), reasons:$('reasonsList'), install:$('installBtn'), tfSelector:$('timeframeSelector')
+  supports:$('supportList'), resistances:$('resistanceList'), reasons:$('reasonsList'), install:$('installBtn'), tfSelector:$('timeframeSelector'),
+  chartSettingsBtn:$('chartSettingsBtn'), chartSettingsPanel:$('chartSettingsPanel'), rsiPanel:$('rsiPanel'), chartLegend:$('chartLegend')
 };
 
 function persist(){
   localStorage.setItem('bsm_market','futures');
   localStorage.setItem('bsm_mode',state.mode);
   localStorage.setItem('bsm_chart_tf',state.chartTf);
+  localStorage.setItem('bsm_chart_layers',JSON.stringify(state.chartLayers));
   localStorage.setItem(marketStoreKey('symbols','futures'),JSON.stringify(state.symbols));
   localStorage.setItem(marketStoreKey('favorites','futures'),JSON.stringify([...state.favorites]));
   localStorage.setItem(marketStoreKey('selected','futures'),state.selected);
@@ -729,6 +739,33 @@ function renderAnalysis(a){
   els.reasons.innerHTML=(a.reasons||[]).map(r=>`<div class="reason">${escapeHtml(r)}</div>`).join('');
 }
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function applyChartPreset(name){
+  const presets={
+    minimal:{rsi:false,volume:false,sr:false,trade:true,crosshair:false},
+    trading:{rsi:true,volume:false,sr:true,trade:true,crosshair:true},
+    full:{rsi:true,volume:true,sr:true,trade:true,crosshair:true}
+  };
+  if(!presets[name])return;
+  state.chartLayers={...state.chartLayers,...presets[name]};persist();syncChartSettingsUI();scheduleChartRender(true);
+}
+function setChartLayer(key,value){
+  if(!(key in DEFAULT_CHART_LAYERS))return;
+  state.chartLayers={...state.chartLayers,[key]:!!value};persist();syncChartSettingsUI();scheduleChartRender(true);
+}
+function syncChartSettingsUI(){
+  els.chartSettingsPanel?.querySelectorAll('[data-layer]').forEach(input=>{input.checked=state.chartLayers[input.dataset.layer]!==false});
+  if(els.rsiPanel)els.rsiPanel.classList.toggle('indicator-hidden',state.chartLayers.rsi===false);
+  if(els.chartLegend){
+    els.chartLegend.querySelectorAll('[data-legend="sr"]').forEach(x=>x.classList.toggle('indicator-hidden',state.chartLayers.sr===false));
+    els.chartLegend.querySelectorAll('[data-legend="trade"]').forEach(x=>x.classList.toggle('indicator-hidden',state.chartLayers.trade===false));
+  }
+  els.chartSettingsBtn?.setAttribute('aria-expanded',state.chartSettingsOpen?'true':'false');
+  els.chartSettingsPanel?.classList.toggle('open',state.chartSettingsOpen);
+}
+function toggleChartSettings(force){
+  state.chartSettingsOpen=typeof force==='boolean'?force:!state.chartSettingsOpen;syncChartSettingsUI();
+}
+
 function updateTimeframeButtons(){
   els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.classList.toggle('active',b.dataset.tf===state.chartTf));
 }
@@ -777,6 +814,7 @@ function chartTimeLabel(openTime,tf){
   return d.toLocaleString('vi-VN',opt);
 }
 function drawRsiPanel(candles){
+  if(state.chartLayers.rsi===false){if(els.rsiValue)els.rsiValue.textContent='--';return}
   const cvs=els.rsiCanvas;if(!cvs)return;
   const ctx=cvs.getContext('2d',{alpha:false});
   let w=Math.max(280,Math.round(cvs.clientWidth||cvs.getBoundingClientRect().width||320));
@@ -815,7 +853,7 @@ function drawRsiPanel(candles){
   }
 
   // Same hover candle as price panel -> synchronized RSI crosshair/value.
-  if(state.chartHoverTime!=null){
+  if(state.chartLayers.crosshair!==false&&state.chartHoverTime!=null){
     let idx=data.findIndex(c=>c.openTime===state.chartHoverTime),v=idx>=0?series[idx]:null;
     if(idx>=0&&Number.isFinite(v)){
       let x=pad.l+idx*xstep+xstep*.5,y=scaleY(v);displayValue=v;
@@ -844,7 +882,7 @@ function drawChart(candles,a){
   if(!candles?.length)return;
 
   let visible=chartVisibleCount(w),data=candles.slice(-visible);if(!data.length)return;
-  let pad={l:11,r:68,t:25,b:25},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,volumeH=Math.max(26,ch*.15),priceH=ch-volumeH-7;
+  let pad={l:11,r:68,t:25,b:25},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,volumeH=state.chartLayers.volume===false?0:Math.max(26,ch*.15),priceH=ch-volumeH-(volumeH?7:0);
   let rawLo=Math.min(...data.map(x=>x.low)),rawHi=Math.max(...data.map(x=>x.high)),rawRange=Math.max(rawHi-rawLo,Math.abs(rawHi)*.001,1e-8);
   let overlay=[a?.entryLow,a?.entryHigh,a?.watchLow,a?.watchHigh,a?.sl,a?.tp1,a?.tp2,a?.tp3].filter(Number.isFinite).filter(v=>v>=rawLo-rawRange*.35&&v<=rawHi+rawRange*.35);
   let lo=Math.min(rawLo,...overlay),hi=Math.max(rawHi,...overlay),extra=Math.max((hi-lo)*.10,rawRange*.06,1e-8);lo-=extra;hi+=extra;
@@ -869,17 +907,21 @@ function drawChart(candles,a){
     if(label){ctx.fillStyle=stroke;ctx.font='bold 9px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';ctx.fillText(label,pad.l+5,top+Math.min(9,hh/2));}
   }
   let supportZones=(a.supports||[]).slice(0,2),resistanceZones=(a.resistances||[]).slice(0,2);
-  supportZones.forEach((z,i)=>band(z,i===0?'rgba(25,230,162,.115)':'rgba(25,230,162,.055)',i===0?'rgba(25,230,162,.66)':'rgba(25,230,162,.34)',i===0?'SUP':''));
-  resistanceZones.forEach((z,i)=>band(z,i===0?'rgba(255,91,120,.115)':'rgba(255,91,120,.055)',i===0?'rgba(255,91,120,.66)':'rgba(255,91,120,.34)',i===0?'RES':''));
+  if(state.chartLayers.sr!==false){
+    supportZones.forEach((z,i)=>band(z,i===0?'rgba(25,230,162,.115)':'rgba(25,230,162,.055)',i===0?'rgba(25,230,162,.66)':'rgba(25,230,162,.34)',i===0?'SUP':''));
+    resistanceZones.forEach((z,i)=>band(z,i===0?'rgba(255,91,120,.115)':'rgba(255,91,120,.055)',i===0?'rgba(255,91,120,.66)':'rgba(255,91,120,.34)',i===0?'RES':''));
+  }
   let entryLow=Number.isFinite(a.entryLow)?a.entryLow:a.watchLow,entryHigh=Number.isFinite(a.entryHigh)?a.entryHigh:a.watchHigh;
-  if(Number.isFinite(entryLow)&&Number.isFinite(entryHigh))band({low:Math.min(entryLow,entryHigh),high:Math.max(entryLow,entryHigh)},'rgba(240,185,11,.12)','rgba(240,185,11,.72)','ENTRY');
+  if(state.chartLayers.trade!==false&&Number.isFinite(entryLow)&&Number.isFinite(entryHigh))band({low:Math.min(entryLow,entryHigh),high:Math.max(entryLow,entryHigh)},'rgba(240,185,11,.12)','rgba(240,185,11,.72)','ENTRY');
 
-  // Volume strip: useful context with very little visual noise.
-  let maxVol=Math.max(...data.map(x=>x.volume||0),1);
-  data.forEach((c,i)=>{
-    let x=pad.l+i*xstep+xstep*.5,bh=(c.volume||0)/maxVol*(volumeH-4),up=c.close>=c.open;
-    ctx.fillStyle=up?'rgba(25,230,162,.18)':'rgba(255,91,120,.18)';ctx.fillRect(x-Math.max(1,xstep*.28),volumeBottom-bh,Math.max(2,xstep*.56),bh);
-  });
+  // Volume strip is visual-only and can be disabled from chart settings.
+  if(state.chartLayers.volume!==false){
+    let maxVol=Math.max(...data.map(x=>x.volume||0),1);
+    data.forEach((c,i)=>{
+      let x=pad.l+i*xstep+xstep*.5,bh=(c.volume||0)/maxVol*(volumeH-4),up=c.close>=c.open;
+      ctx.fillStyle=up?'rgba(25,230,162,.18)':'rgba(255,91,120,.18)';ctx.fillRect(x-Math.max(1,xstep*.28),volumeBottom-bh,Math.max(2,xstep*.56),bh);
+    });
+  }
 
   // Candles. Avoid expensive shadowBlur on every websocket tick.
   data.forEach((c,i)=>{
@@ -894,7 +936,7 @@ function drawChart(candles,a){
     ctx.font='bold 9px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';let text=`${label} ${fmt(value)}`,tw=ctx.measureText(text).width+10,x=Math.max(pad.l,w-pad.r-tw-2);
     ctx.fillStyle='rgba(4,8,12,.86)';ctx.fillRect(x,y-8,tw,16);ctx.fillStyle=color;ctx.fillText(text,x+5,y);ctx.restore();
   }
-  priceLine(a.sl,'SL','#ff718a',[3,4]);priceLine(a.tp3,'TP3','#4fd6a5',[3,5]);priceLine(a.tp2,'TP2','#3bd59b',[3,5]);priceLine(a.tp1,'TP1','#24e2a0',[3,5]);
+  if(state.chartLayers.trade!==false){priceLine(a.sl,'SL','#ff718a',[3,4]);priceLine(a.tp3,'TP3','#4fd6a5',[3,5]);priceLine(a.tp2,'TP2','#3bd59b',[3,5]);priceLine(a.tp1,'TP1','#24e2a0',[3,5]);}
 
   let last=data.at(-1),lastY=scaleY(last.close);
   if(lastY>=pad.t&&lastY<=priceBottom){
@@ -907,7 +949,7 @@ function drawChart(candles,a){
   [0,Math.floor((data.length-1)/2),data.length-1].forEach((idx,j)=>{let x=pad.l+idx*xstep+xstep*.5,label=chartTimeLabel(data[idx].openTime,state.chartTf),tw=ctx.measureText(label).width;ctx.fillText(label,Math.max(pad.l,Math.min(w-pad.r-tw,x-tw/2)),h-5)});
 
   // Pointer crosshair + OHLC readout.
-  if(state.chartHoverTime!=null){
+  if(state.chartLayers.crosshair!==false&&state.chartHoverTime!=null){
     let idx=data.findIndex(c=>c.openTime===state.chartHoverTime);if(idx>=0){let c=data[idx],x=pad.l+idx*xstep+xstep*.5,y=scaleY(c.close);
       ctx.strokeStyle='rgba(220,232,246,.36)';ctx.lineWidth=1;ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(x,pad.t);ctx.lineTo(x,priceBottom);ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();ctx.setLineDash([]);
       ctx.fillStyle='#e8f0fa';ctx.beginPath();ctx.arc(x,y,2.6,0,Math.PI*2);ctx.fill();
@@ -934,12 +976,18 @@ async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9
 function setMode(m){state.mode=m;state.chartTf='4h';els.swing.classList.toggle('active',m==='swing');els.short.classList.toggle('active',m==='short');updateTimeframeButtons();persist();analyzeSelected()}
 els.swing.onclick=()=>setMode('swing');els.short.onclick=()=>setMode('short');els.add.onclick=addSymbol;els.input.addEventListener('keydown',e=>{if(e.key==='Enter')addSymbol()});els.refresh.onclick=()=>analyzeSelected({forceRest:true,source:'manual'});els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>setChartTimeframe(b.dataset.tf)));
 function updateChartPointer(e){
+  if(state.chartLayers.crosshair===false)return;
   let arr=state.candles?.[state.chartTf],target=e.currentTarget||els.canvas;if(!arr?.length||!target)return;let r=target.getBoundingClientRect(),x=e.clientX-r.left,w=r.width,padL=11,padR=68,cw=w-padL-padR;if(x<padL||x>w-padR)return;
   let data=arr.slice(-chartVisibleCount(w)),step=cw/data.length,idx=clamp(Math.floor((x-padL)/step),0,data.length-1);state.chartHoverTime=data[idx]?.openTime??null;scheduleChartRender(true);
 }
 function bindChartPointer(canvas){
   canvas?.addEventListener('pointermove',updateChartPointer,{passive:true});canvas?.addEventListener('pointerdown',updateChartPointer,{passive:true});canvas?.addEventListener('pointerleave',()=>{state.chartHoverTime=null;scheduleChartRender(true)});
 }
+els.chartSettingsBtn?.addEventListener('click',e=>{e.stopPropagation();toggleChartSettings()});
+els.chartSettingsPanel?.querySelectorAll('[data-layer]').forEach(input=>input.addEventListener('change',()=>setChartLayer(input.dataset.layer,input.checked)));
+els.chartSettingsPanel?.querySelectorAll('[data-preset]').forEach(btn=>btn.addEventListener('click',()=>applyChartPreset(btn.dataset.preset)));
+document.addEventListener('click',e=>{if(state.chartSettingsOpen&&!els.chartSettingsPanel?.contains(e.target)&&!els.chartSettingsBtn?.contains(e.target))toggleChartSettings(false)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&state.chartSettingsOpen)toggleChartSettings(false)});
 bindChartPointer(els.canvas);bindChartPointer(els.rsiCanvas);
 window.addEventListener('resize',()=>scheduleChartRender(true));
 window.addEventListener('pagehide',()=>{clearTimeout(state.klineReconnectTimer);clearTimeout(state.tickerReconnectTimer);clearTimeout(state.tickerRenderTimer);clearTimeout(state.chartRenderTimer);clearTimeout(state.integrityResyncTimer);clearTimeout(connectKlines._analysisTimer);try{state.klineWs?.close()}catch{};try{state.ws?.close()}catch{}});
@@ -960,7 +1008,7 @@ if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{let
   if(!state.symbols.includes(state.selected))state.selected=state.symbols[0]||'BTCUSDT';
   if(state.mode==='short') state.chartTf='4h';
   els.swing.classList.toggle('active',state.mode==='swing');els.short.classList.toggle('active',state.mode==='short');
-  updateTimeframeButtons();renderWatchlist();renderSelectedTicker();setDataHealth('syncing','Đang khởi tạo dữ liệu');connectTicker();connectKlines();
+  updateTimeframeButtons();syncChartSettingsUI();renderWatchlist();renderSelectedTicker();setDataHealth('syncing','Đang khởi tạo dữ liệu');connectTicker();connectKlines();
   try{let t=await validateSymbol(state.selected,state.market);state.tickers.set(state.selected,{price:t.price,change:t.change});renderWatchlist();renderSelectedTicker()}catch{}
   analyzeSelected();
 })();
