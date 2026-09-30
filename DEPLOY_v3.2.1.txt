@@ -1,0 +1,19 @@
+BinanceSignalMobile v3.2.1 - WebSocket / Candle Cache
+
+Upload de len ROOT repo dang publish GitHub Pages:
+- app.js
+- index.html
+- sw.js
+- README.md (khong bat buoc de website chay)
+
+Khong doi UI, khong doi Short V2.2, khong doi Support/Resistance v3.2.
+
+Diem moi:
+- Nen dong tu WebSocket duoc ghi vao candle cache va phan tich lai tai client.
+- Khong tai lai 260 nen cua moi timeframe sau moi lan dong nen.
+- REST chi dung khi cache chua co/stale, manual refresh, hoac reconnect resync.
+- Deduplicate request cung symbol/timeframe.
+- Cache RAM toi da 35 symbol-timeframe entries, tu prune entries cu.
+- Ticker UI batch moi ~120ms thay vi rebuild DOM moi WebSocket message.
+- WebSocket reconnect exponential backoff va REST resync sau reconnect.
+- Manual Refresh van ep REST de doi chieu du lieu moi nhat.

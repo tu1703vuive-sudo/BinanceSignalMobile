@@ -1,7 +1,15 @@
 'use strict';
 
-const APP_VERSION='3.2.0';
+const APP_VERSION='3.2.1';
+const DATA_ENGINE_VERSION='ws-cache-v1';
 const ENGINE_VERSION='short-v2.2';
+const CANDLE_CACHE_LIMIT=300;
+const CANDLE_CACHE_MAX_ENTRIES=35;
+const CANDLE_CACHE_FRESH_MS=90000;
+const TICKER_RENDER_INTERVAL=120;
+const WS_RECONNECT_BASE_MS=1200;
+const WS_RECONNECT_MAX_MS=12000;
+
 const SHORT_STRATEGY=Object.freeze({
   timeframes:['15m','1h','4h'],
   weights:Object.freeze({'4h':45,'1h':35,'15m':20}),
@@ -42,8 +50,11 @@ const state={
   symbols:initialMarketData.symbols,
   favorites:initialMarketData.favorites,
   selected:initialMarketData.selected,
-  tickers:new Map(), candles:new Map(), liveKlines:{}, ws:null, klineWs:null, klineReconnectTimer:null, analysis:null, deferredPrompt:null,
-  analysisToken:0
+  tickers:new Map(), candles:{}, liveKlines:{},
+  candleCache:new Map(), candleCacheMeta:new Map(), pendingKlines:new Map(),
+  ws:null, klineWs:null, klineReconnectTimer:null, tickerReconnectTimer:null,
+  klineReconnectAttempt:0, tickerReconnectAttempt:0, tickerRenderTimer:null, chartRenderQueued:false,
+  analysis:null, deferredPrompt:null, analysisToken:0
 };
 if(!CHART_TIMEFRAMES.includes(state.chartTf)) state.chartTf='4h';
 const DEFAULT_MODE_VERSION='short-default-v1';
@@ -412,6 +423,63 @@ function analyzeShort(data){
 
 function basicWait(mode,msg){return{kind:'WAIT',score:0,mode,timeframes:'--',reasons:[msg],supports:[],resistances:[],hint:'WAIT - đang chờ đủ dữ liệu.'}}
 
+function candleCacheKey(symbol,interval,market=state.market){return `${market}:${symbol}:${interval}`}
+function touchCandleCache(key,patch={}){
+  let meta=state.candleCacheMeta.get(key)||{};
+  meta.lastAccess=Date.now();Object.assign(meta,patch);state.candleCacheMeta.set(key,meta);return meta;
+}
+function pruneCandleCache(){
+  if(state.candleCache.size<=CANDLE_CACHE_MAX_ENTRIES)return;
+  let currentPrefix=`${state.market}:${state.selected}:`;
+  let victims=[...state.candleCache.keys()]
+    .filter(k=>!k.startsWith(currentPrefix))
+    .sort((a,b)=>(state.candleCacheMeta.get(a)?.lastAccess||0)-(state.candleCacheMeta.get(b)?.lastAccess||0));
+  while(state.candleCache.size>CANDLE_CACHE_MAX_ENTRIES&&victims.length){
+    let k=victims.shift();state.candleCache.delete(k);state.candleCacheMeta.delete(k);
+  }
+}
+function normalizeCandles(candles){
+  let m=new Map();for(let c of candles||[]){if(c&&Number.isFinite(c.openTime))m.set(c.openTime,c)}
+  return [...m.values()].sort((a,b)=>a.openTime-b.openTime).slice(-CANDLE_CACHE_LIMIT);
+}
+function setCachedCandles(symbol,interval,candles,market=state.market,hydrated=true){
+  let key=candleCacheKey(symbol,interval,market),arr=normalizeCandles(candles);
+  state.candleCache.set(key,arr);touchCandleCache(key,{hydrated,lastUpdateAt:Date.now()});pruneCandleCache();
+  if(symbol===state.selected&&market===state.market)state.candles[interval]=arr;
+  return arr;
+}
+function getCachedCandles(symbol,interval,market=state.market){
+  let key=candleCacheKey(symbol,interval,market),arr=state.candleCache.get(key);
+  if(arr)touchCandleCache(key);return arr||null;
+}
+function cacheIsFresh(symbol,interval,market=state.market){
+  let key=candleCacheKey(symbol,interval,market),meta=state.candleCacheMeta.get(key);
+  return !!(meta?.hydrated&&meta.lastUpdateAt&&Date.now()-meta.lastUpdateAt<=CANDLE_CACHE_FRESH_MS);
+}
+function updateCachedCandle(symbol,interval,candle,market=state.market){
+  let key=candleCacheKey(symbol,interval,market),arr=state.candleCache.get(key);
+  if(!arr){arr=[];state.candleCache.set(key,arr)}
+  let last=arr.at(-1);
+  if(last?.openTime===candle.openTime)arr[arr.length-1]=candle;
+  else if(!last||candle.openTime>last.openTime)arr.push(candle);
+  else{
+    let idx=arr.findIndex(x=>x.openTime===candle.openTime);if(idx>=0)arr[idx]=candle;
+  }
+  if(arr.length>CANDLE_CACHE_LIMIT)arr.splice(0,arr.length-CANDLE_CACHE_LIMIT);
+  touchCandleCache(key,{lastUpdateAt:Date.now()});pruneCandleCache();
+  if(symbol===state.selected&&market===state.market)state.candles[interval]=arr;
+  return arr;
+}
+function scheduleChartRender(){
+  if(state.chartRenderQueued)return;state.chartRenderQueued=true;
+  requestAnimationFrame(()=>{state.chartRenderQueued=false;let arr=state.candles?.[state.chartTf];if(arr?.length)drawChart(arr,state.analysis||{})});
+}
+function scheduleTickerRender(){
+  if(state.tickerRenderTimer)return;
+  state.tickerRenderTimer=setTimeout(()=>{state.tickerRenderTimer=null;renderWatchlist();renderSelectedTicker()},TICKER_RENDER_INTERVAL);
+}
+function reconnectDelay(attempt){return Math.min(WS_RECONNECT_MAX_MS,WS_RECONNECT_BASE_MS*Math.pow(1.7,Math.max(0,attempt-1)))}
+
 async function apiFetch(path,market=state.market){
   let last,cfg=marketCfg(market);
   for(let base of cfg.apiBases){
@@ -430,45 +498,59 @@ async function getKlines(symbol,interval,limit=260,market=state.market){
   let rows=await apiFetch(`${cfg.klinesPath}?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`,market);
   return rows.map(r=>({openTime:+r[0],open:+r[1],high:+r[2],low:+r[3],close:+r[4],volume:+r[5],closeTime:+r[6]}));
 }
-
-function mergeLiveCandle(interval,candles){
-  let live=state.liveKlines?.[interval]; if(!live)return candles;
-  let out=[...(candles||[])], last=out.at(-1);
-  if(last&&last.openTime===live.openTime) out[out.length-1]=live;
-  else if(!last||live.openTime>last.openTime) out.push(live);
-  return out.slice(-300);
+async function getKlinesCached(symbol,interval,market=state.market,{forceRest=false}={}){
+  let cached=getCachedCandles(symbol,interval,market);
+  if(!forceRest&&cached&&cacheIsFresh(symbol,interval,market))return cached;
+  let key=candleCacheKey(symbol,interval,market);
+  if(state.pendingKlines.has(key))return state.pendingKlines.get(key);
+  let p=getKlines(symbol,interval,260,market)
+    .then(rows=>setCachedCandles(symbol,interval,mergeLiveCandle(interval,rows,symbol,market),market,true))
+    .finally(()=>state.pendingKlines.delete(key));
+  state.pendingKlines.set(key,p);return p;
 }
-function applyLiveKline(interval,candle){
-  state.liveKlines[interval]=candle;
-  let arr=state.candles?.[interval];
-  if(arr?.length){
-    let last=arr.at(-1);
-    if(last.openTime===candle.openTime) arr[arr.length-1]=candle;
-    else if(candle.openTime>last.openTime) arr.push(candle);
-    if(arr.length>300)arr.splice(0,arr.length-300);
-  }
-  if(interval===state.chartTf&&state.candles?.[interval]) drawChart(state.candles[interval],state.analysis||{});
+
+function mergeLiveCandle(interval,candles,symbol=state.selected,market=state.market){
+  let live=(symbol===state.selected&&market===state.market)?state.liveKlines?.[interval]:null;if(!live)return normalizeCandles(candles);
+  let out=[...(candles||[])],last=out.at(-1);
+  if(last&&last.openTime===live.openTime)out[out.length-1]=live;
+  else if(!last||live.openTime>last.openTime)out.push(live);
+  return normalizeCandles(out);
+}
+function applyLiveKline(interval,candle,symbol=state.selected,market=state.market){
+  if(symbol===state.selected&&market===state.market)state.liveKlines[interval]=candle;
+  updateCachedCandle(symbol,interval,candle,market);
+  if(interval===state.chartTf&&symbol===state.selected&&market===state.market)scheduleChartRender();
 }
 function connectKlines(){
   if(state.klineReconnectTimer){clearTimeout(state.klineReconnectTimer);state.klineReconnectTimer=null}
   if(state.klineWs){try{state.klineWs.onclose=null;state.klineWs.close()}catch{}state.klineWs=null}
-  let symbol=(state.selected||'').toLowerCase(); if(!symbol)return;
+  let symbol=(state.selected||'').toLowerCase();if(!symbol)return;
   let marketAtConnect=state.market,selectedAtConnect=state.selected,cfg=marketCfg(marketAtConnect);
   let streams=CHART_TIMEFRAMES.map(tf=>`${symbol}@kline_${tf}`).join('/');
-  let ws=new WebSocket(cfg.wsBase+streams); state.klineWs=ws;
+  let ws=new WebSocket(cfg.wsBase+streams);state.klineWs=ws;
+  ws.onopen=()=>{
+    if(state.klineWs!==ws)return;
+    let wasReconnect=state.klineReconnectAttempt>0;state.klineReconnectAttempt=0;
+    if(wasReconnect)setTimeout(()=>{if(state.klineWs===ws&&state.selected===selectedAtConnect)analyzeSelected({forceRest:true,source:'ws-resync'})},300);
+  };
   ws.onmessage=e=>{try{
     if(state.market!==marketAtConnect||state.selected!==selectedAtConnect)return;
     let payload=JSON.parse(e.data),d=payload.data||payload,k=d.k;if(!k||d.s!==selectedAtConnect)return;
     let candle={openTime:+k.t,open:+k.o,high:+k.h,low:+k.l,close:+k.c,volume:+k.v,closeTime:+k.T};
-    applyLiveKline(k.i,candle);
+    applyLiveKline(k.i,candle,selectedAtConnect,marketAtConnect);
     if(k.i===state.chartTf){
       let t=state.tickers.get(state.selected)||{};state.tickers.set(state.selected,{price:candle.close,change:t.change||0});renderSelectedTicker();
     }
     if(k.x&&(ANALYSIS_TIMEFRAMES[state.mode]||[]).includes(k.i)){
-      clearTimeout(connectKlines._analysisTimer);connectKlines._analysisTimer=setTimeout(()=>analyzeSelected(),450);
+      clearTimeout(connectKlines._analysisTimer);
+      connectKlines._analysisTimer=setTimeout(()=>analyzeSelected({forceRest:false,source:'closed-kline'}),180);
     }
   }catch{}};
-  ws.onclose=()=>{if(state.klineWs===ws){state.klineReconnectTimer=setTimeout(connectKlines,1800)}};
+  ws.onclose=()=>{
+    if(state.klineWs!==ws)return;
+    state.klineReconnectAttempt++;
+    state.klineReconnectTimer=setTimeout(connectKlines,reconnectDelay(state.klineReconnectAttempt));
+  };
   ws.onerror=()=>{};
 }
 async function validateSymbol(s,market=state.market){
@@ -478,19 +560,23 @@ async function validateSymbol(s,market=state.market){
 }
 
 function connectTicker(){
-  if(state.ws){try{state.ws.onclose=null;state.ws.close()}catch{}}
+  if(state.tickerReconnectTimer){clearTimeout(state.tickerReconnectTimer);state.tickerReconnectTimer=null}
+  if(state.ws){try{state.ws.onclose=null;state.ws.close()}catch{}state.ws=null}
   if(!state.symbols.length)return;
   let marketAtConnect=state.market,cfg=marketCfg(marketAtConnect),streams=state.symbols.map(s=>`${s.toLowerCase()}@miniTicker`).join('/');
   let ws=new WebSocket(cfg.wsBase+streams);state.ws=ws;setConn('connecting');
-  ws.onopen=()=>{if(state.market===marketAtConnect)setConn('online')};
+  ws.onopen=()=>{if(state.ws===ws&&state.market===marketAtConnect){state.tickerReconnectAttempt=0;setConn('online')}};
   ws.onmessage=e=>{try{
     if(state.market!==marketAtConnect)return;
-    let payload=JSON.parse(e.data),d=payload.data||payload,s=d.s,p=+d.c,o=+d.o,ch=o?((p-o)/o*100):0;
-    if(!s)return;
-    state.tickers.set(s,{price:p,change:ch});renderWatchlist();if(s===state.selected)renderSelectedTicker();
+    let payload=JSON.parse(e.data),d=payload.data||payload,s=d.s,p=+d.c,o=+d.o,ch=o?((p-o)/o*100):0;if(!s)return;
+    state.tickers.set(s,{price:p,change:ch});scheduleTickerRender();
   }catch{}};
   ws.onerror=()=>{if(state.market===marketAtConnect)setConn('offline')};
-  ws.onclose=()=>{if(state.ws===ws&&state.market===marketAtConnect){setConn('offline');setTimeout(()=>{if(state.ws===ws)connectTicker()},2500)}};
+  ws.onclose=()=>{
+    if(state.ws!==ws||state.market!==marketAtConnect)return;
+    setConn('offline');state.tickerReconnectAttempt++;
+    state.tickerReconnectTimer=setTimeout(()=>{if(state.ws===ws)connectTicker()},reconnectDelay(state.tickerReconnectAttempt));
+  };
 }
 function setConn(s){els.conn.classList.toggle('online',s==='online');els.conn.classList.toggle('offline',s==='offline');els.conn.querySelector('span:last-child').textContent=s==='online'?'Realtime':s==='connecting'?'Đang kết nối':'Mất kết nối'}
 function renderWatchlist(){
@@ -517,37 +603,31 @@ function chartTfLabel(tf){return tf==='1M'?'1M':tf}
 async function setChartTimeframe(tf){
   if(!CHART_TIMEFRAMES.includes(tf))return;
   state.chartTf=tf;persist();updateTimeframeButtons();
-  els.chartTitle.textContent=`${state.selected} • ${chartTfLabel(tf)}`;
+  let requestSymbol=state.selected,requestMarket=state.market;
+  els.chartTitle.textContent=`${requestSymbol} • ${chartTfLabel(tf)}`;
   try{
-    let candles=state.candles?.[tf];
-    if(!candles){
-      els.updated.textContent='Đang tải...';
-      candles=mergeLiveCandle(tf,await getKlines(state.selected,tf,260));
-      if(!state.candles||Array.isArray(state.candles))state.candles={};
-      state.candles[tf]=candles;
+    let candles=state.candles?.[tf]||getCachedCandles(requestSymbol,tf,requestMarket);
+    if(!candles||!cacheIsFresh(requestSymbol,tf,requestMarket)){
+      els.updated.textContent='Đang tải...';candles=await getKlinesCached(requestSymbol,tf,requestMarket);
     }
-    drawChart(candles,state.analysis||{});
+    if(requestSymbol!==state.selected||requestMarket!==state.market||tf!==state.chartTf)return;
+    state.candles[tf]=candles;drawChart(candles,state.analysis||{});
     els.updated.textContent=new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
-  }catch(e){
-    els.updated.textContent='Lỗi tải biểu đồ';
-  }
+  }catch(e){if(requestSymbol===state.selected&&tf===state.chartTf)els.updated.textContent='Lỗi tải biểu đồ'}
 }
-async function analyzeSelected(){
+async function analyzeSelected({forceRest=false,source='ui'}={}){
   const token=++state.analysisToken,requestMarket=state.market,requestSymbol=state.selected,requestMode=state.mode,requestChartTf=state.chartTf;
-  renderSelectedTicker();els.hint.textContent=`Đang tải Binance ${marketLabel(requestMarket)} và phân tích...`;els.refresh.disabled=true;
+  renderSelectedTicker();if(source!=='closed-kline')els.hint.textContent=`Đang tải Binance ${marketLabel(requestMarket)} và phân tích...`;els.refresh.disabled=true;
   try{
     let analysisIntervals=ANALYSIS_TIMEFRAMES[requestMode]||ANALYSIS_TIMEFRAMES.short;
-    let intervals=[...new Set([...analysisIntervals,requestChartTf])];
-    let data={};
-    await Promise.all(intervals.map(async i=>{data[i]=mergeLiveCandle(i,await getKlines(requestSymbol,i,260,requestMarket))}));
+    let intervals=[...new Set([...analysisIntervals,requestChartTf])],data={};
+    await Promise.all(intervals.map(async i=>{data[i]=await getKlinesCached(requestSymbol,i,requestMarket,{forceRest})}));
     if(token!==state.analysisToken||requestMarket!==state.market||requestSymbol!==state.selected||requestMode!==state.mode||requestChartTf!==state.chartTf)return;
-    state.candles=data;
+    state.candles={...state.candles,...data};
     let a=requestMode==='swing'?analyzeSwing(data):analyzeShort(data);
     renderAnalysis(a);updateTimeframeButtons();els.chartTitle.textContent=`${requestSymbol} · ${marketLabel(requestMarket)} • ${chartTfLabel(requestChartTf)}`;drawChart(data[requestChartTf],a);
   }catch(e){
-    if(token===state.analysisToken&&requestMarket===state.market){
-      renderAnalysis(basicWait(requestMode==='swing'?'DÀI HẠN':'NGẮN HẠN',`Không tải được Binance ${marketLabel(requestMarket)}: ${e.message||e}`));
-    }
+    if(token===state.analysisToken&&requestMarket===state.market)renderAnalysis(basicWait(requestMode==='swing'?'DÀI HẠN':'NGẮN HẠN',`Không tải được Binance ${marketLabel(requestMarket)}: ${e.message||e}`));
   }finally{if(token===state.analysisToken)els.refresh.disabled=false}
 }
 function drawChart(candles,a){
@@ -577,8 +657,16 @@ async function removeSymbol(s){
 }
 async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim();if(!s)return;if(!s.endsWith('USDT'))s+='USDT';els.add.disabled=true;try{let t=await validateSymbol(s,state.market);state.tickers.set(s,{price:t.price,change:t.change});if(!state.symbols.includes(s))state.symbols.push(s);state.selected=s;state.candles={};state.liveKlines={};els.input.value='';persist();renderWatchlist();connectTicker();connectKlines();await analyzeSelected()}catch{alert(`Không tìm thấy ${s} trên Binance USDⓈ-M Futures hoặc Binance đang chặn kết nối từ mạng hiện tại.`)}finally{els.add.disabled=false}}
 function setMode(m){state.mode=m;state.chartTf='4h';els.swing.classList.toggle('active',m==='swing');els.short.classList.toggle('active',m==='short');updateTimeframeButtons();persist();analyzeSelected()}
-els.swing.onclick=()=>setMode('swing');els.short.onclick=()=>setMode('short');els.add.onclick=addSymbol;els.input.addEventListener('keydown',e=>{if(e.key==='Enter')addSymbol()});els.refresh.onclick=analyzeSelected;els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>setChartTimeframe(b.dataset.tf)));window.addEventListener('resize',()=>{if(state.candles?.[state.chartTf])drawChart(state.candles[state.chartTf],state.analysis||{})});
-window.addEventListener('pagehide',()=>{try{state.klineWs?.close()}catch{};try{state.ws?.close()}catch{}});
+els.swing.onclick=()=>setMode('swing');els.short.onclick=()=>setMode('short');els.add.onclick=addSymbol;els.input.addEventListener('keydown',e=>{if(e.key==='Enter')addSymbol()});els.refresh.onclick=()=>analyzeSelected({forceRest:true,source:'manual'});els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>setChartTimeframe(b.dataset.tf)));window.addEventListener('resize',()=>{if(state.candles?.[state.chartTf])drawChart(state.candles[state.chartTf],state.analysis||{})});
+window.addEventListener('pagehide',()=>{clearTimeout(state.klineReconnectTimer);clearTimeout(state.tickerReconnectTimer);clearTimeout(state.tickerRenderTimer);clearTimeout(connectKlines._analysisTimer);try{state.klineWs?.close()}catch{};try{state.ws?.close()}catch{}});
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState!=='visible')return;
+  if(!state.ws||state.ws.readyState>=2)connectTicker();
+  if(!state.klineWs||state.klineWs.readyState>=2)connectKlines();
+  let intervals=[...new Set([...(ANALYSIS_TIMEFRAMES[state.mode]||ANALYSIS_TIMEFRAMES.short),state.chartTf])];
+  if(intervals.some(tf=>!cacheIsFresh(state.selected,tf,state.market)))setTimeout(()=>analyzeSelected({forceRest:true,source:'resume'}),120);
+});
+window.addEventListener('online',()=>{connectTicker();connectKlines();setTimeout(()=>analyzeSelected({forceRest:true,source:'online'}),150)});
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.deferredPrompt=e;els.install.classList.remove('hidden')});els.install.onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;els.install.classList.add('hidden')}};
 if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{let r=await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'});await r.update()}catch{}});
 

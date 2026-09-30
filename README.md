@@ -1,3 +1,14 @@
+
+## v3.2.1 - WebSocket / Candle Cache
+
+- Giữ nguyên Short V2.2 và Support/Resistance của v3.2.0.
+- Kline WebSocket cập nhật trực tiếp candle cache trong RAM.
+- Khi nến phân tích đóng, engine tính lại từ cache thay vì tải lại toàn bộ 260 nến mỗi timeframe.
+- REST dùng cho initial hydrate, cache stale, manual refresh và reconnect resync.
+- Chống request trùng cùng symbol/timeframe.
+- Batch render ticker để giảm DOM churn/CPU.
+- Reconnect WebSocket theo exponential backoff.
+
 # BinanceSignalMobile v3.2.0 — Short Engine V2.2
 
 Bản này được nâng cấp trực tiếp từ source production hiện tại, giữ nguyên giao diện và cấu trúc GitHub Pages/PWA.
