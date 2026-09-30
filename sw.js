@@ -1,4 +1,4 @@
-const CACHE_NAME = "binance-signal-web-mobile-v2";
+const CACHE_NAME = "binance-signal-mobile-hardlock-v3";
 const APP_SHELL = [
   "./",
   "./index.html",

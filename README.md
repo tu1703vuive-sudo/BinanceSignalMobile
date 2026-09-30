@@ -60,3 +60,11 @@ Bản này khóa giao diện theo mobile:
 - font input/select 16px để tránh iOS auto-zoom
 - bảng dữ liệu cuộn ngang
 - không thay đổi logic Signal Engine
+
+
+## Mobile Hard Lock V3
+
+Bản này ép layout mobile trực tiếp trong `index.html`.
+Dấu hiệu đúng bản: đầu trang phải hiện `WEB ONLY · MOBILE LOCK V3`.
+
+Nếu không thấy dòng này, GitHub Pages vẫn đang chạy file `index.html` cũ hoặc bạn upload vào thư mục con thay vì root.
