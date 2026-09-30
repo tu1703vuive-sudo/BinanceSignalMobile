@@ -1,0 +1,10 @@
+UPLOAD ĐÈ VÀO ROOT REPO GITHUB PAGES:
+- app.js
+- styles.css
+- index.html
+- sw.js
+- README.md (tùy chọn)
+- CHANGELOG_v3.2.4.md (tùy chọn)
+
+Sau commit: mở tab ẩn danh hoặc hard refresh.
+Kiểm tra panel RSI (14) xuất hiện ngay dưới mini chart và thay đổi theo 15m / 1h / 4h / 12h / 1d / 1w / 1M.

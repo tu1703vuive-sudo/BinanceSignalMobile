@@ -10,7 +10,7 @@
   <title>Binance Signal</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <link rel="stylesheet" href="./styles.css?v=323" />
+  <link rel="stylesheet" href="./styles.css?v=324" />
 </head>
 <body>
   <header class="topbar">
@@ -100,6 +100,12 @@
             <canvas id="chartCanvas" width="1200" height="560"></canvas>
             <div id="chartStats" class="chart-stats">-- nến · cache realtime</div>
           </div>
+          <div class="rsi-panel">
+            <div class="rsi-panel-head"><span>RSI (14)</span><strong id="rsiValue">--</strong></div>
+            <div class="rsi-stage">
+              <canvas id="rsiCanvas" width="1200" height="190" aria-label="RSI 14"></canvas>
+            </div>
+          </div>
         </div>
 
         <div class="grid-2">
@@ -136,6 +142,6 @@
     </section>
   </main>
 
-  <script src="./app.js?v=323" defer></script>
+  <script src="./app.js?v=324" defer></script>
 </body>
 </html>

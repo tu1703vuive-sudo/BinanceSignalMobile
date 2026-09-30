@@ -1,5 +1,5 @@
-const CACHE='binance-signal-v3-2-3-data-integrity';
-const ASSETS=['./','./index.html','./styles.css?v=323','./app.js?v=323','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE='binance-signal-v3-2-4-rsi14-panel';
+const ASSETS=['./','./index.html','./styles.css?v=324','./app.js?v=324','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 
 self.addEventListener('install',e=>e.waitUntil(
   caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())

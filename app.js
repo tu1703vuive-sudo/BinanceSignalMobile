@@ -1,6 +1,7 @@
 'use strict';
 
-const APP_VERSION='3.2.3';
+const APP_VERSION='3.2.4';
+const CHART_INDICATOR_VERSION='rsi14-panel-v1';
 const DATA_ENGINE_VERSION='integrity-guard-v1';
 const ENGINE_VERSION='short-v2.2';
 const CANDLE_CACHE_LIMIT=300;
@@ -77,7 +78,7 @@ const $=id=>document.getElementById(id);
 const els={
   conn:$('connStatus'), swing:$('modeSwing'), short:$('modeShort'), input:$('symbolInput'), add:$('addSymbolBtn'), refresh:$('refreshBtn'),
   watch:$('watchList'), count:$('watchCount'), symbol:$('selectedSymbol'), mode:$('modeLabel'), price:$('selectedPrice'), change:$('selectedChange'),
-  badge:$('signalBadge'), score:$('scoreText'), tf:$('timeframes'), hint:$('planHint'), planTitle:$('inlinePlanTitle'), canvas:$('chartCanvas'), chartTitle:$('chartTitle'), updated:$('updatedAt'), chartStats:$('chartStats'), chartLive:$('chartLiveBadge'),
+  badge:$('signalBadge'), score:$('scoreText'), tf:$('timeframes'), hint:$('planHint'), planTitle:$('inlinePlanTitle'), canvas:$('chartCanvas'), rsiCanvas:$('rsiCanvas'), rsiValue:$('rsiValue'), chartTitle:$('chartTitle'), updated:$('updatedAt'), chartStats:$('chartStats'), chartLive:$('chartLiveBadge'),
   entry:$('entryValue'), sl:$('slValue'), tp1:$('tp1Value'), tp2:$('tp2Value'), tp3:$('tp3Value'), invalid:$('invalidValue'), trigger:$('triggerText'), breakout:$('breakoutText'),
   supports:$('supportList'), resistances:$('resistanceList'), reasons:$('reasonsList'), install:$('installBtn'), tfSelector:$('timeframeSelector')
 };
@@ -101,6 +102,13 @@ function closedCandles(c){return c.filter(x=>x.closeTime<nowMs());}
 function ema(values,period){ if(!values.length)return 0; const seed=Math.min(period,values.length); let e=avg(values.slice(0,seed)),m=2/(period+1); for(let i=seed;i<values.length;i++) e=(values[i]-e)*m+e; return e; }
 function emaSeries(v,p){if(!v.length)return[];let e=v[0],m=2/(p+1),r=[e];for(let i=1;i<v.length;i++){e=(v[i]-e)*m+e;r.push(e)}return r}
 function rsi(closes,p=14){if(closes.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=closes[i]-closes[i-1];if(d>=0)g+=d;else l-=d}g/=p;l/=p;for(let i=p+1;i<closes.length;i++){let d=closes[i]-closes[i-1],gg=d>0?d:0,ll=d<0?-d:0;g=(g*(p-1)+gg)/p;l=(l*(p-1)+ll)/p}if(l===0)return 100;let rs=g/l;return 100-(100/(1+rs))}
+function rsiSeries(closes,p=14){
+  let out=new Array(closes.length).fill(null);if(closes.length<=p)return out;
+  let g=0,l=0;for(let i=1;i<=p;i++){let d=closes[i]-closes[i-1];if(d>=0)g+=d;else l-=d}g/=p;l/=p;
+  const value=()=>l===0?100:100-(100/(1+g/l));out[p]=value();
+  for(let i=p+1;i<closes.length;i++){let d=closes[i]-closes[i-1],gg=d>0?d:0,ll=d<0?-d:0;g=(g*(p-1)+gg)/p;l=(l*(p-1)+ll)/p;out[i]=value()}
+  return out;
+}
 function macd(closes){if(closes.length<35)return{line:0,signal:0,hist:0};let a=emaSeries(closes,12),b=emaSeries(closes,26),m=a.map((x,i)=>x-b[i]),s=emaSeries(m,9);return{line:m.at(-1),signal:s.at(-1),hist:m.at(-1)-s.at(-1)}}
 function atr(c,p=14){if(c.length<2)return 0;let tr=[];for(let i=Math.max(1,c.length-p);i<c.length;i++){let x=c[i],pc=c[i-1].close;tr.push(Math.max(x.high-x.low,Math.abs(x.high-pc),Math.abs(x.low-pc)))}return avg(tr)}
 function avgPrevVol(c,p=20){if(c.length<=1)return 0;let end=c.length-1,start=Math.max(0,end-p);return avg(c.slice(start,end).map(x=>x.volume))}
@@ -768,6 +776,62 @@ function chartTimeLabel(openTime,tf){
   let d=new Date(openTime),opt=(tf==='1d'||tf==='1w'||tf==='1M')?{day:'2-digit',month:'2-digit'}:{hour:'2-digit',minute:'2-digit'};
   return d.toLocaleString('vi-VN',opt);
 }
+function drawRsiPanel(candles){
+  const cvs=els.rsiCanvas;if(!cvs)return;
+  const ctx=cvs.getContext('2d',{alpha:false});
+  let w=Math.max(280,Math.round(cvs.clientWidth||cvs.getBoundingClientRect().width||320));
+  let h=Math.max(82,Math.round(cvs.clientHeight||96));
+  let dpr=Math.min(CHART_MAX_DPR,window.devicePixelRatio||1),bw=Math.round(w*dpr),bh=Math.round(h*dpr);
+  if(cvs.width!==bw||cvs.height!==bh){cvs.width=bw;cvs.height=bh}
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+  let bg=ctx.createLinearGradient(0,0,0,h);bg.addColorStop(0,'#090e16');bg.addColorStop(1,'#060a10');ctx.fillStyle=bg;ctx.fillRect(0,0,w,h);
+  if(!candles?.length){if(els.rsiValue)els.rsiValue.textContent='--';return}
+
+  let visible=chartVisibleCount(w),start=Math.max(0,candles.length-visible),data=candles.slice(start),series=rsiSeries(candles.map(x=>x.close),14).slice(start);
+  let pad={l:11,r:68,t:10,b:10},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,xstep=cw/Math.max(1,data.length),scaleY=v=>pad.t+(100-v)/100*ch;
+
+  // 70/30 zones: readable but intentionally subtle.
+  ctx.fillStyle='rgba(255,91,120,.045)';ctx.fillRect(pad.l,pad.t,cw,scaleY(70)-pad.t);
+  ctx.fillStyle='rgba(25,230,162,.045)';ctx.fillRect(pad.l,scaleY(30),cw,pad.t+ch-scaleY(30));
+  ctx.font='9px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';ctx.textBaseline='middle';
+  [[70,'70'],[50,'50'],[30,'30']].forEach(([v,label])=>{
+    let y=scaleY(v);ctx.strokeStyle=v===50?'rgba(142,160,183,.14)':'rgba(142,160,183,.22)';ctx.lineWidth=1;ctx.setLineDash(v===50?[2,4]:[4,4]);ctx.beginPath();ctx.moveTo(pad.l,y+.5);ctx.lineTo(w-pad.r,y+.5);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#75879c';ctx.fillText(label,w-pad.r+7,y);
+  });
+
+  // RSI line with a soft under-glow, drawn once per scheduled chart frame.
+  ctx.save();ctx.lineJoin='round';ctx.lineCap='round';
+  for(let pass=0;pass<2;pass++){
+    ctx.beginPath();let started=false;
+    series.forEach((v,i)=>{if(!Number.isFinite(v))return;let x=pad.l+i*xstep+xstep*.5,y=scaleY(v);if(!started){ctx.moveTo(x,y);started=true}else ctx.lineTo(x,y)});
+    ctx.strokeStyle=pass===0?'rgba(156,134,255,.16)':'#9f8cff';ctx.lineWidth=pass===0?5:1.7;ctx.stroke();
+  }
+  ctx.restore();
+
+  let latest=[...series].reverse().find(Number.isFinite),displayValue=latest;
+  if(Number.isFinite(latest)){
+    let y=scaleY(latest),text=latest.toFixed(1),color=latest>=70?'#ff7289':latest<=30?'#25dda4':'#a995ff';
+    ctx.strokeStyle=color;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(Math.max(pad.l,w-pad.r-37),y+.5);ctx.lineTo(w-pad.r,y+.5);ctx.stroke();ctx.setLineDash([]);
+    ctx.font='bold 9px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';ctx.fillStyle=color;ctx.fillText(text,w-pad.r+25,y);
+  }
+
+  // Same hover candle as price panel -> synchronized RSI crosshair/value.
+  if(state.chartHoverTime!=null){
+    let idx=data.findIndex(c=>c.openTime===state.chartHoverTime),v=idx>=0?series[idx]:null;
+    if(idx>=0&&Number.isFinite(v)){
+      let x=pad.l+idx*xstep+xstep*.5,y=scaleY(v);displayValue=v;
+      ctx.strokeStyle='rgba(220,232,246,.32)';ctx.lineWidth=1;ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(x,pad.t);ctx.lineTo(x,pad.t+ch);ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle='#d8d2ff';ctx.beginPath();ctx.arc(x,y,2.8,0,Math.PI*2);ctx.fill();
+      let label=`RSI ${v.toFixed(1)}`;ctx.font='bold 9px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';let tw=ctx.measureText(label).width+12;
+      ctx.fillStyle='rgba(7,12,18,.92)';ctx.fillRect(Math.max(pad.l,Math.min(w-pad.r-tw,x-tw/2)),pad.t+2,tw,18);ctx.fillStyle='#ded9ff';ctx.fillText(label,Math.max(pad.l+6,Math.min(w-pad.r-tw+6,x-tw/2+6)),pad.t+11);
+    }
+  }
+  if(els.rsiValue){
+    els.rsiValue.textContent=Number.isFinite(displayValue)?displayValue.toFixed(1):'--';
+    els.rsiValue.classList.toggle('overbought',Number.isFinite(displayValue)&&displayValue>=70);
+    els.rsiValue.classList.toggle('oversold',Number.isFinite(displayValue)&&displayValue<=30);
+  }
+}
+
 function drawChart(candles,a){
   const cvs=els.canvas;if(!cvs)return;
   const ctx=cvs.getContext('2d',{alpha:false});
@@ -856,6 +920,7 @@ function drawChart(candles,a){
     let check=inspectCandles(candles,state.chartTf),health=check.ok?'data OK':`gap ${check.missing||check.gaps.length}`;
     els.chartStats.textContent=`${data.length} nến · ${health} · cache realtime`;
   }
+  drawRsiPanel(candles);
   renderDataHealthBadge();
 }
 async function selectSymbol(s){state.selected=s;state.candles={};state.liveKlines={};persist();renderWatchlist();renderSelectedTicker();connectKlines();await analyzeSelected()}
@@ -869,12 +934,13 @@ async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9
 function setMode(m){state.mode=m;state.chartTf='4h';els.swing.classList.toggle('active',m==='swing');els.short.classList.toggle('active',m==='short');updateTimeframeButtons();persist();analyzeSelected()}
 els.swing.onclick=()=>setMode('swing');els.short.onclick=()=>setMode('short');els.add.onclick=addSymbol;els.input.addEventListener('keydown',e=>{if(e.key==='Enter')addSymbol()});els.refresh.onclick=()=>analyzeSelected({forceRest:true,source:'manual'});els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>setChartTimeframe(b.dataset.tf)));
 function updateChartPointer(e){
-  let arr=state.candles?.[state.chartTf];if(!arr?.length||!els.canvas)return;let r=els.canvas.getBoundingClientRect(),x=e.clientX-r.left,w=r.width,padL=11,padR=68,cw=w-padL-padR;if(x<padL||x>w-padR)return;
+  let arr=state.candles?.[state.chartTf],target=e.currentTarget||els.canvas;if(!arr?.length||!target)return;let r=target.getBoundingClientRect(),x=e.clientX-r.left,w=r.width,padL=11,padR=68,cw=w-padL-padR;if(x<padL||x>w-padR)return;
   let data=arr.slice(-chartVisibleCount(w)),step=cw/data.length,idx=clamp(Math.floor((x-padL)/step),0,data.length-1);state.chartHoverTime=data[idx]?.openTime??null;scheduleChartRender(true);
 }
-els.canvas?.addEventListener('pointermove',updateChartPointer,{passive:true});
-els.canvas?.addEventListener('pointerdown',updateChartPointer,{passive:true});
-els.canvas?.addEventListener('pointerleave',()=>{state.chartHoverTime=null;scheduleChartRender(true)});
+function bindChartPointer(canvas){
+  canvas?.addEventListener('pointermove',updateChartPointer,{passive:true});canvas?.addEventListener('pointerdown',updateChartPointer,{passive:true});canvas?.addEventListener('pointerleave',()=>{state.chartHoverTime=null;scheduleChartRender(true)});
+}
+bindChartPointer(els.canvas);bindChartPointer(els.rsiCanvas);
 window.addEventListener('resize',()=>scheduleChartRender(true));
 window.addEventListener('pagehide',()=>{clearTimeout(state.klineReconnectTimer);clearTimeout(state.tickerReconnectTimer);clearTimeout(state.tickerRenderTimer);clearTimeout(state.chartRenderTimer);clearTimeout(state.integrityResyncTimer);clearTimeout(connectKlines._analysisTimer);try{state.klineWs?.close()}catch{};try{state.ws?.close()}catch{}});
 document.addEventListener('visibilitychange',()=>{

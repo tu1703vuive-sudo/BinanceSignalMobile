@@ -1,3 +1,15 @@
+## v3.2.4 - RSI 14 Chart Panel
+
+- Thêm panel RSI (14) ngay dưới Mini Chart V2.
+- Mốc 70 / 50 / 30 hiển thị trực quan; vùng >70 và <30 được tô rất nhẹ.
+- RSI đổi theo timeframe đang xem và dùng chính candle cache v3.2.3, không gọi thêm Binance API.
+- Crosshair RSI đồng bộ với candle đang rê/chạm ở price chart; có thể rê trực tiếp trên RSI panel.
+- Giá trị RSI hiện tại luôn hiển thị ở header panel và trên scale bên phải.
+- Render chung nhịp requestAnimationFrame với chart để giữ độ mượt.
+- RSI panel chỉ để quan sát; không thay đổi Short V2.2, Swing, Support/Resistance, Entry/SL/TP hay Data Integrity Guard.
+
+---
+
 ## v3.2.3 - Data Integrity Guard
 
 - Phát hiện nến lỗi, trùng, sai thứ tự và khoảng trống trong chuỗi nến.
