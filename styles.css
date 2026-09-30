@@ -354,6 +354,10 @@ h1{
 .chart-live i{width:5px;height:5px;border-radius:50%;background:#64758a}
 .chart-live.online{color:#a9f7da;border-color:rgba(25,230,162,.22);background:rgba(25,230,162,.055)}
 .chart-live.online i{background:var(--green);box-shadow:0 0 0 3px rgba(25,230,162,.08)}
+.chart-live.resyncing{color:#ffd88a;border-color:rgba(255,190,70,.25);background:rgba(255,190,70,.06)}
+.chart-live.resyncing i{background:#ffbd46;box-shadow:0 0 0 3px rgba(255,189,70,.08)}
+.chart-live.stale{color:#ffb7be;border-color:rgba(255,83,103,.25);background:rgba(255,83,103,.06)}
+.chart-live.stale i{background:var(--red);box-shadow:0 0 0 3px rgba(255,83,103,.08)}
 .timeframe-selector{
   display:grid!important;
   grid-template-columns:repeat(7,minmax(0,1fr))!important;

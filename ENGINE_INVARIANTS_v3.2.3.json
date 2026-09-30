@@ -1,0 +1,18 @@
+{
+  "analyzeSwing": {
+    "same": true,
+    "sha256": "81e86c5a407b52cb"
+  },
+  "analyzeShort": {
+    "same": true,
+    "sha256": "6e1eae31986e87b9"
+  },
+  "buildSupport": {
+    "same": true,
+    "sha256": "a2dc660387774071"
+  },
+  "buildResistance": {
+    "same": true,
+    "sha256": "38f8aa0167e4b26e"
+  }
+}

@@ -1,7 +1,7 @@
 'use strict';
 
-const APP_VERSION='3.2.2';
-const DATA_ENGINE_VERSION='ws-cache-v1';
+const APP_VERSION='3.2.3';
+const DATA_ENGINE_VERSION='integrity-guard-v1';
 const ENGINE_VERSION='short-v2.2';
 const CANDLE_CACHE_LIMIT=300;
 const CANDLE_CACHE_MAX_ENTRIES=35;
@@ -11,6 +11,10 @@ const CHART_RENDER_INTERVAL=90;
 const CHART_MAX_DPR=2;
 const WS_RECONNECT_BASE_MS=1200;
 const WS_RECONNECT_MAX_MS=12000;
+const REST_TIMEOUT_MS=8000;
+const REST_MAX_ATTEMPTS=3;
+const REST_RETRY_BASE_MS=450;
+const DATA_HEALTH_STALE_MS=120000;
 
 const SHORT_STRATEGY=Object.freeze({
   timeframes:['15m','1h','4h'],
@@ -56,7 +60,8 @@ const state={
   candleCache:new Map(), candleCacheMeta:new Map(), pendingKlines:new Map(),
   ws:null, klineWs:null, klineReconnectTimer:null, tickerReconnectTimer:null,
   klineReconnectAttempt:0, tickerReconnectAttempt:0, tickerRenderTimer:null, chartRenderTimer:null, chartRenderQueued:false,
-  chartLastRenderAt:0, chartHoverTime:null, analysis:null, deferredPrompt:null, analysisToken:0
+  chartLastRenderAt:0, chartHoverTime:null, analysis:null, deferredPrompt:null, analysisToken:0,
+  dataHealth:'syncing', dataHealthDetail:'', integrityResyncTimer:null, integrityResyncKey:null
 };
 if(!CHART_TIMEFRAMES.includes(state.chartTf)) state.chartTf='4h';
 const DEFAULT_MODE_VERSION='short-default-v1';
@@ -426,6 +431,49 @@ function analyzeShort(data){
 function basicWait(mode,msg){return{kind:'WAIT',score:0,mode,timeframes:'--',reasons:[msg],supports:[],resistances:[],hint:'WAIT - đang chờ đủ dữ liệu.'}}
 
 function candleCacheKey(symbol,interval,market=state.market){return `${market}:${symbol}:${interval}`}
+const INTERVAL_MS=Object.freeze({'15m':15*60e3,'1h':60*60e3,'4h':4*60*60e3,'12h':12*60*60e3,'1d':24*60*60e3,'1w':7*24*60*60e3});
+function nextIntervalOpen(openTime,interval){
+  if(interval==='1M'){
+    let d=new Date(openTime);return Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1);
+  }
+  let step=INTERVAL_MS[interval];return step?openTime+step:null;
+}
+function missingIntervalCount(prevOpen,nextOpen,interval){
+  if(nextOpen<=prevOpen)return 0;
+  if(interval==='1M'){
+    let count=0,t=nextIntervalOpen(prevOpen,interval);
+    while(t!=null&&t<nextOpen&&count<120){count++;t=nextIntervalOpen(t,interval)}
+    return count;
+  }
+  let step=INTERVAL_MS[interval];return step?Math.max(0,Math.round((nextOpen-prevOpen)/step)-1):0;
+}
+function candleIsValid(c){
+  if(!c||![c.openTime,c.open,c.high,c.low,c.close,c.volume,c.closeTime].every(Number.isFinite))return false;
+  if(c.closeTime<=c.openTime||c.volume<0)return false;
+  let eps=Math.max(Math.abs(c.high),Math.abs(c.low),Math.abs(c.open),Math.abs(c.close),1)*1e-10;
+  return c.high+eps>=Math.max(c.open,c.close,c.low)&&c.low-eps<=Math.min(c.open,c.close,c.high);
+}
+function inspectCandles(candles,interval){
+  let raw=Array.isArray(candles)?candles:[],invalid=0,duplicates=0,outOfOrder=0,seen=new Set(),valid=[];
+  let prevRaw=null;
+  for(let c of raw){
+    if(!candleIsValid(c)){invalid++;continue}
+    if(prevRaw!=null&&c.openTime<prevRaw)outOfOrder++;
+    prevRaw=c.openTime;
+    if(seen.has(c.openTime))duplicates++;
+    seen.add(c.openTime);valid.push(c);
+  }
+  let normalized=normalizeCandles(valid),gaps=[],missing=0;
+  for(let i=1;i<normalized.length;i++){
+    let expected=nextIntervalOpen(normalized[i-1].openTime,interval);
+    if(expected!=null&&normalized[i].openTime>expected+1000){
+      let n=missingIntervalCount(normalized[i-1].openTime,normalized[i].openTime,interval);missing+=n;
+      gaps.push({after:normalized[i-1].openTime,before:normalized[i].openTime,missing:n});
+      if(gaps.length>=4)break;
+    }
+  }
+  return{ok:invalid===0&&gaps.length===0,invalid,duplicates,outOfOrder,gaps,missing,count:normalized.length,normalized,repaired:duplicates+outOfOrder>0};
+}
 function touchCandleCache(key,patch={}){
   let meta=state.candleCacheMeta.get(key)||{};
   meta.lastAccess=Date.now();Object.assign(meta,patch);state.candleCacheMeta.set(key,meta);return meta;
@@ -445,8 +493,8 @@ function normalizeCandles(candles){
   return [...m.values()].sort((a,b)=>a.openTime-b.openTime).slice(-CANDLE_CACHE_LIMIT);
 }
 function setCachedCandles(symbol,interval,candles,market=state.market,hydrated=true){
-  let key=candleCacheKey(symbol,interval,market),arr=normalizeCandles(candles);
-  state.candleCache.set(key,arr);touchCandleCache(key,{hydrated,lastUpdateAt:Date.now()});pruneCandleCache();
+  let key=candleCacheKey(symbol,interval,market),check=inspectCandles(candles,interval),arr=check.normalized;
+  state.candleCache.set(key,arr);touchCandleCache(key,{hydrated,lastUpdateAt:Date.now(),integrityOk:check.ok,integrity:check});pruneCandleCache();
   if(symbol===state.selected&&market===state.market)state.candles[interval]=arr;
   return arr;
 }
@@ -456,20 +504,41 @@ function getCachedCandles(symbol,interval,market=state.market){
 }
 function cacheIsFresh(symbol,interval,market=state.market){
   let key=candleCacheKey(symbol,interval,market),meta=state.candleCacheMeta.get(key);
-  return !!(meta?.hydrated&&meta.lastUpdateAt&&Date.now()-meta.lastUpdateAt<=CANDLE_CACHE_FRESH_MS);
+  return !!(meta?.hydrated&&meta.integrityOk!==false&&meta.lastUpdateAt&&Date.now()-meta.lastUpdateAt<=CANDLE_CACHE_FRESH_MS);
+}
+function cacheIntegrity(symbol,interval,market=state.market){
+  return state.candleCacheMeta.get(candleCacheKey(symbol,interval,market))?.integrity||null;
+}
+function renderDataHealthBadge(){
+  if(!els.chartLive)return;
+  let status=state.dataHealth||'syncing',map={live:'LIVE',resyncing:'RESYNCING',stale:'STALE',syncing:'SYNC'};
+  els.chartLive.classList.toggle('online',status==='live');
+  els.chartLive.classList.toggle('resyncing',status==='resyncing'||status==='syncing');
+  els.chartLive.classList.toggle('stale',status==='stale');
+  let text=els.chartLive.querySelector('span:last-child');if(text)text.textContent=map[status]||'SYNC';
+  els.chartLive.title=state.dataHealthDetail||'';
+}
+function setDataHealth(status,detail=''){
+  state.dataHealth=status;state.dataHealthDetail=detail;renderDataHealthBadge();
 }
 function updateCachedCandle(symbol,interval,candle,market=state.market){
   let key=candleCacheKey(symbol,interval,market),arr=state.candleCache.get(key);
   if(!arr){arr=[];state.candleCache.set(key,arr)}
-  let last=arr.at(-1);
+  let last=arr.at(-1),gapDetected=false;
+  if(last&&candle.openTime>last.openTime){
+    let expected=nextIntervalOpen(last.openTime,interval);
+    if(expected!=null&&candle.openTime>expected+1000)gapDetected=true;
+  }
   if(last?.openTime===candle.openTime)arr[arr.length-1]=candle;
   else if(!last||candle.openTime>last.openTime)arr.push(candle);
   else{
     let idx=arr.findIndex(x=>x.openTime===candle.openTime);if(idx>=0)arr[idx]=candle;
   }
   if(arr.length>CANDLE_CACHE_LIMIT)arr.splice(0,arr.length-CANDLE_CACHE_LIMIT);
-  touchCandleCache(key,{lastUpdateAt:Date.now()});pruneCandleCache();
+  let check=inspectCandles(arr,interval);
+  touchCandleCache(key,{lastUpdateAt:Date.now(),lastWsAt:Date.now(),integrityOk:check.ok&&!gapDetected,integrity:check});pruneCandleCache();
   if(symbol===state.selected&&market===state.market)state.candles[interval]=arr;
+  if(gapDetected&&symbol===state.selected&&market===state.market)scheduleIntegrityResync(symbol,interval,market,'Phát hiện thiếu nến WebSocket');
   return arr;
 }
 function scheduleChartRender(immediate=false){
@@ -490,17 +559,56 @@ function scheduleTickerRender(){
   state.tickerRenderTimer=setTimeout(()=>{state.tickerRenderTimer=null;renderWatchlist();renderSelectedTicker()},TICKER_RENDER_INTERVAL);
 }
 function reconnectDelay(attempt){return Math.min(WS_RECONNECT_MAX_MS,WS_RECONNECT_BASE_MS*Math.pow(1.7,Math.max(0,attempt-1)))}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+function assertDataIntegrity(data,intervals){
+  let bad=[];
+  for(let tf of intervals){
+    let check=inspectCandles(data?.[tf],tf);
+    if(!check.ok)bad.push({tf,...check});
+  }
+  if(bad.length){
+    let msg=bad.map(x=>`${x.tf}: ${x.invalid?`${x.invalid} nến lỗi`:''}${x.invalid&&x.gaps.length?', ':''}${x.gaps.length?`thiếu ${x.missing||x.gaps.length} nến`:''}`).join(' • ');
+    let e=new Error(`Dữ liệu chưa toàn vẹn (${msg})`);e.name='DataIntegrityError';e.details=bad;throw e;
+  }
+  return true;
+}
+function scheduleIntegrityResync(symbol,interval,market=state.market,reason='Dữ liệu cần đồng bộ lại'){
+  if(symbol!==state.selected||market!==state.market)return;
+  let key=candleCacheKey(symbol,interval,market);state.integrityResyncKey=key;setDataHealth('resyncing',reason);
+  clearTimeout(state.integrityResyncTimer);
+  state.integrityResyncTimer=setTimeout(async()=>{
+    if(state.integrityResyncKey!==key||symbol!==state.selected||market!==state.market)return;
+    try{
+      await getKlinesCached(symbol,interval,market,{forceRest:true});
+      let check=cacheIntegrity(symbol,interval,market);
+      if(check&&!check.ok)throw new Error(`Resync ${interval} vẫn thiếu dữ liệu`);
+      if((ANALYSIS_TIMEFRAMES[state.mode]||[]).includes(interval))await analyzeSelected({forceRest:false,source:'integrity-resync'});
+      else if(state.chartTf===interval){state.candles[interval]=getCachedCandles(symbol,interval,market);scheduleChartRender(true)}
+      if(state.klineWs?.readyState===1)setDataHealth('live','Dữ liệu đã đồng bộ');else setDataHealth('syncing','Đã đồng bộ cache, đang chờ WebSocket');
+    }catch(e){setDataHealth('stale',e.message||'Không thể đồng bộ dữ liệu')}
+  },260);
+}
 
 async function apiFetch(path,market=state.market){
   let last,cfg=marketCfg(market);
   for(let base of cfg.apiBases){
-    try{
-      let controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
-      let r=await fetch(base+path,{cache:'no-store',signal:controller.signal});
-      clearTimeout(timer);
-      if(!r.ok)throw new Error(`${r.status}`);
-      return await r.json();
-    }catch(e){last=e}
+    for(let attempt=1;attempt<=REST_MAX_ATTEMPTS;attempt++){
+      let controller=new AbortController(),timer=setTimeout(()=>controller.abort(),REST_TIMEOUT_MS);
+      try{
+        let r=await fetch(base+path,{cache:'no-store',signal:controller.signal});
+        clearTimeout(timer);
+        if(r.ok)return await r.json();
+        let retryable=r.status===408||r.status===418||r.status===429||r.status>=500;
+        let err=new Error(`HTTP ${r.status}`);err.status=r.status;last=err;
+        if(!retryable)throw err;
+        let retryAfter=Number(r.headers.get('Retry-After'));
+        if(attempt<REST_MAX_ATTEMPTS)await sleep(Number.isFinite(retryAfter)&&retryAfter>0?retryAfter*1000:REST_RETRY_BASE_MS*Math.pow(2,attempt-1));
+      }catch(e){
+        clearTimeout(timer);last=e;
+        if(e?.status&&!([408,418,429].includes(e.status)||e.status>=500))throw e;
+        if(attempt<REST_MAX_ATTEMPTS)await sleep(REST_RETRY_BASE_MS*Math.pow(2,attempt-1));
+      }
+    }
   }
   throw last||new Error(`Không kết nối được Binance ${marketLabel(market)}`);
 }
@@ -515,7 +623,11 @@ async function getKlinesCached(symbol,interval,market=state.market,{forceRest=fa
   let key=candleCacheKey(symbol,interval,market);
   if(state.pendingKlines.has(key))return state.pendingKlines.get(key);
   let p=getKlines(symbol,interval,260,market)
-    .then(rows=>setCachedCandles(symbol,interval,mergeLiveCandle(interval,rows,symbol,market),market,true))
+    .then(rows=>{
+      let arr=setCachedCandles(symbol,interval,mergeLiveCandle(interval,rows,symbol,market),market,true),check=cacheIntegrity(symbol,interval,market);
+      if(check&&!check.ok){let e=new Error(`${interval}: dữ liệu REST có khoảng trống`);e.name='DataIntegrityError';throw e}
+      return arr;
+    })
     .finally(()=>state.pendingKlines.delete(key));
   state.pendingKlines.set(key,p);return p;
 }
@@ -542,7 +654,8 @@ function connectKlines(){
   ws.onopen=()=>{
     if(state.klineWs!==ws)return;
     let wasReconnect=state.klineReconnectAttempt>0;state.klineReconnectAttempt=0;
-    if(wasReconnect)setTimeout(()=>{if(state.klineWs===ws&&state.selected===selectedAtConnect)analyzeSelected({forceRest:true,source:'ws-resync'})},300);
+    if(wasReconnect){setDataHealth('resyncing','WebSocket vừa kết nối lại, đang đối chiếu REST');setTimeout(()=>{if(state.klineWs===ws&&state.selected===selectedAtConnect)analyzeSelected({forceRest:true,source:'ws-resync'})},300)}
+    else if(state.analysis)setDataHealth('live','WebSocket kline đang trực tuyến');
   };
   ws.onmessage=e=>{try{
     if(state.market!==marketAtConnect||state.selected!==selectedAtConnect)return;
@@ -559,6 +672,7 @@ function connectKlines(){
   }catch{}};
   ws.onclose=()=>{
     if(state.klineWs!==ws)return;
+    setDataHealth('stale','WebSocket kline bị ngắt, đang chờ kết nối lại');
     state.klineReconnectAttempt++;
     state.klineReconnectTimer=setTimeout(connectKlines,reconnectDelay(state.klineReconnectAttempt));
   };
@@ -629,16 +743,24 @@ async function setChartTimeframe(tf){
 async function analyzeSelected({forceRest=false,source='ui'}={}){
   const token=++state.analysisToken,requestMarket=state.market,requestSymbol=state.selected,requestMode=state.mode,requestChartTf=state.chartTf;
   renderSelectedTicker();if(source!=='closed-kline')els.hint.textContent=`Đang tải Binance ${marketLabel(requestMarket)} và phân tích...`;els.refresh.disabled=true;
+  if(source==='ws-resync'||source==='resume'||source==='online'||source==='integrity-resync')setDataHealth('resyncing','Đang kiểm tra và đồng bộ dữ liệu nến');
+  else if(source!=='closed-kline')setDataHealth('syncing','Đang kiểm tra dữ liệu');
   try{
     let analysisIntervals=ANALYSIS_TIMEFRAMES[requestMode]||ANALYSIS_TIMEFRAMES.short;
     let intervals=[...new Set([...analysisIntervals,requestChartTf])],data={};
     await Promise.all(intervals.map(async i=>{data[i]=await getKlinesCached(requestSymbol,i,requestMarket,{forceRest})}));
     if(token!==state.analysisToken||requestMarket!==state.market||requestSymbol!==state.selected||requestMode!==state.mode||requestChartTf!==state.chartTf)return;
+    assertDataIntegrity(data,intervals);
     state.candles={...state.candles,...data};
     let a=requestMode==='swing'?analyzeSwing(data):analyzeShort(data);
     renderAnalysis(a);updateTimeframeButtons();els.chartTitle.textContent=`${requestSymbol} · ${marketLabel(requestMarket)} • ${chartTfLabel(requestChartTf)}`;drawChart(data[requestChartTf],a);
+    setDataHealth(state.klineWs?.readyState===1?'live':'syncing',state.klineWs?.readyState===1?'Dữ liệu nến hợp lệ và WebSocket đang trực tuyến':'Dữ liệu hợp lệ, đang chờ WebSocket');
   }catch(e){
-    if(token===state.analysisToken&&requestMarket===state.market)renderAnalysis(basicWait(requestMode==='swing'?'DÀI HẠN':'NGẮN HẠN',`Không tải được Binance ${marketLabel(requestMarket)}: ${e.message||e}`));
+    if(token===state.analysisToken&&requestMarket===state.market){
+      let integrity=e?.name==='DataIntegrityError';
+      setDataHealth('stale',integrity?'Phát hiện dữ liệu nến thiếu/lỗi':'Không thể xác nhận dữ liệu mới');
+      renderAnalysis(basicWait(requestMode==='swing'?'DÀI HẠN':'NGẮN HẠN',integrity?`Tạm chặn tín hiệu: ${e.message||e}`:`Không tải được Binance ${marketLabel(requestMarket)}: ${e.message||e}`));
+    }
   }finally{if(token===state.analysisToken)els.refresh.disabled=false}
 }
 function chartVisibleCount(w){return w<350?46:w<410?52:58}
@@ -730,8 +852,11 @@ function drawChart(candles,a){
     }
   }
 
-  if(els.chartStats)els.chartStats.textContent=`${data.length} nến · cache realtime`;
-  if(els.chartLive){let live=state.klineWs?.readyState===1;els.chartLive.classList.toggle('online',live);els.chartLive.querySelector('span:last-child').textContent=live?'LIVE':'SYNC';}
+  if(els.chartStats){
+    let check=inspectCandles(candles,state.chartTf),health=check.ok?'data OK':`gap ${check.missing||check.gaps.length}`;
+    els.chartStats.textContent=`${data.length} nến · ${health} · cache realtime`;
+  }
+  renderDataHealthBadge();
 }
 async function selectSymbol(s){state.selected=s;state.candles={};state.liveKlines={};persist();renderWatchlist();renderSelectedTicker();connectKlines();await analyzeSelected()}
 async function removeSymbol(s){
@@ -751,15 +876,17 @@ els.canvas?.addEventListener('pointermove',updateChartPointer,{passive:true});
 els.canvas?.addEventListener('pointerdown',updateChartPointer,{passive:true});
 els.canvas?.addEventListener('pointerleave',()=>{state.chartHoverTime=null;scheduleChartRender(true)});
 window.addEventListener('resize',()=>scheduleChartRender(true));
-window.addEventListener('pagehide',()=>{clearTimeout(state.klineReconnectTimer);clearTimeout(state.tickerReconnectTimer);clearTimeout(state.tickerRenderTimer);clearTimeout(state.chartRenderTimer);clearTimeout(connectKlines._analysisTimer);try{state.klineWs?.close()}catch{};try{state.ws?.close()}catch{}});
+window.addEventListener('pagehide',()=>{clearTimeout(state.klineReconnectTimer);clearTimeout(state.tickerReconnectTimer);clearTimeout(state.tickerRenderTimer);clearTimeout(state.chartRenderTimer);clearTimeout(state.integrityResyncTimer);clearTimeout(connectKlines._analysisTimer);try{state.klineWs?.close()}catch{};try{state.ws?.close()}catch{}});
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState!=='visible')return;
   if(!state.ws||state.ws.readyState>=2)connectTicker();
   if(!state.klineWs||state.klineWs.readyState>=2)connectKlines();
   let intervals=[...new Set([...(ANALYSIS_TIMEFRAMES[state.mode]||ANALYSIS_TIMEFRAMES.short),state.chartTf])];
-  if(intervals.some(tf=>!cacheIsFresh(state.selected,tf,state.market)))setTimeout(()=>analyzeSelected({forceRest:true,source:'resume'}),120);
+  let stale=intervals.some(tf=>!cacheIsFresh(state.selected,tf,state.market));
+  if(stale){setDataHealth('resyncing','Tab vừa hoạt động lại, đang kiểm tra nến bị bỏ lỡ');setTimeout(()=>analyzeSelected({forceRest:true,source:'resume'}),120)}
+  else setDataHealth(state.klineWs?.readyState===1?'live':'syncing','Cache vẫn còn mới');
 });
-window.addEventListener('online',()=>{connectTicker();connectKlines();setTimeout(()=>analyzeSelected({forceRest:true,source:'online'}),150)});
+window.addEventListener('online',()=>{setDataHealth('resyncing','Mạng đã trở lại, đang đồng bộ dữ liệu');connectTicker();connectKlines();setTimeout(()=>analyzeSelected({forceRest:true,source:'online'}),150)});
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.deferredPrompt=e;els.install.classList.remove('hidden')});els.install.onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;els.install.classList.add('hidden')}};
 if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{let r=await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'});await r.update()}catch{}});
 
@@ -767,7 +894,7 @@ if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{let
   if(!state.symbols.includes(state.selected))state.selected=state.symbols[0]||'BTCUSDT';
   if(state.mode==='short') state.chartTf='4h';
   els.swing.classList.toggle('active',state.mode==='swing');els.short.classList.toggle('active',state.mode==='short');
-  updateTimeframeButtons();renderWatchlist();renderSelectedTicker();connectTicker();connectKlines();
+  updateTimeframeButtons();renderWatchlist();renderSelectedTicker();setDataHealth('syncing','Đang khởi tạo dữ liệu');connectTicker();connectKlines();
   try{let t=await validateSymbol(state.selected,state.market);state.tickers.set(state.selected,{price:t.price,change:t.change});renderWatchlist();renderSelectedTicker()}catch{}
   analyzeSelected();
 })();

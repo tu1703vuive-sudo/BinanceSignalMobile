@@ -1,0 +1,10 @@
+UPLOAD ĐÈ VÀO ROOT REPO GITHUB PAGES:
+- app.js
+- styles.css
+- index.html
+- sw.js
+- README.md (tùy chọn)
+- CHANGELOG_v3.2.3.md (tùy chọn)
+
+Sau commit: mở tab ẩn danh hoặc hard refresh để kiểm tra.
+Badge chart nên chuyển SYNC/RESYNCING -> LIVE khi dữ liệu hợp lệ và WebSocket hoạt động.

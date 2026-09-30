@@ -1,3 +1,16 @@
+## v3.2.3 - Data Integrity Guard
+
+- Phát hiện nến lỗi, trùng, sai thứ tự và khoảng trống trong chuỗi nến.
+- Tự chuẩn hóa duplicate/out-of-order trước khi cache.
+- Nếu WebSocket bỏ lỡ nến, tự REST resync timeframe bị lỗi.
+- Khi tab ngủ/nền rồi quay lại, kiểm tra cache và resync nếu stale.
+- REST có timeout 8 giây + tối đa 3 lần retry với exponential backoff cho timeout/408/418/429/5xx.
+- Tạm chặn LONG/SHORT/WATCH khi dữ liệu phân tích không toàn vẹn; hiển thị WAIT thay vì dùng dữ liệu lỗi.
+- Badge dữ liệu: LIVE / RESYNCING / STALE / SYNC.
+- Giữ nguyên Short V2.2, Swing, Support/Resistance và Mini Chart V2 của v3.2.2.
+
+---
+
 ## v3.2.2 - Mini Chart V2 + UI Polish
 
 - Giữ nguyên Short V2.2, Swing Engine và Support/Resistance của v3.2.1.
