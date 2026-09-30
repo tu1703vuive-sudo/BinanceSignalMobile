@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0f14" />
+  <meta name="description" content="Binance Signal Web - phân tích kỹ thuật đa khung thời gian từ dữ liệu thị trường công khai Binance." />
+  <title>Binance Signal Web</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">WEB ONLY · GITHUB PAGES</div>
+        <h1>Binance Signal</h1>
+      </div>
+      <div class="status-wrap">
+        <span id="wsDot" class="status-dot"></span>
+        <span id="wsStatus">Đang kết nối giá...</span>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="panel controls-panel">
+        <div class="control-grid">
+          <label class="field">
+            <span>Cặp giao dịch</span>
+            <select id="symbolSelect" aria-label="Chọn cặp giao dịch"></select>
+          </label>
+
+          <div class="field">
+            <span>Chế độ</span>
+            <div class="segmented" role="tablist" aria-label="Chế độ phân tích">
+              <button id="shortModeBtn" class="segment active" data-mode="short">Ngắn hạn</button>
+              <button id="swingModeBtn" class="segment" data-mode="swing">Dài hạn</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span>Thao tác</span>
+            <button id="analyzeBtn" class="primary-btn">Phân tích ngay</button>
+          </div>
+        </div>
+
+        <div class="market-line">
+          <div>
+            <span class="muted">Giá hiện tại</span>
+            <strong id="livePrice">—</strong>
+          </div>
+          <div>
+            <span class="muted">24h</span>
+            <strong id="priceChange">—</strong>
+          </div>
+          <div>
+            <span class="muted">Cập nhật phân tích</span>
+            <strong id="lastUpdated">—</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="hero-grid">
+        <article id="signalCard" class="panel signal-card">
+          <div class="card-head">
+            <span class="muted">TÍN HIỆU HIỆN TẠI</span>
+            <span id="modeBadge" class="chip">NGẮN HẠN</span>
+          </div>
+          <div class="signal-main">
+            <div>
+              <div id="signalBadge" class="signal-badge wait">WAIT</div>
+              <p id="signalSummary" class="signal-summary">Đang chờ phân tích.</p>
+            </div>
+            <div class="score-block">
+              <span class="muted">Độ đồng thuận</span>
+              <strong id="signalScore">—</strong>
+              <small>Không phải xác suất thắng</small>
+            </div>
+          </div>
+          <div class="meter"><div id="scoreMeter" class="meter-fill"></div></div>
+        </article>
+
+        <article class="panel">
+          <div class="card-head">
+            <span class="muted">KẾ HOẠCH GIÁ</span>
+            <span id="planDirection" class="chip">—</span>
+          </div>
+          <div class="plan-grid">
+            <div><span>Entry</span><strong id="entryValue">—</strong></div>
+            <div><span>Stop Loss</span><strong id="slValue">—</strong></div>
+            <div><span>TP1</span><strong id="tp1Value">—</strong></div>
+            <div><span>TP2</span><strong id="tp2Value">—</strong></div>
+          </div>
+          <p id="rrValue" class="micro-note">R:R —</p>
+        </article>
+      </section>
+
+      <section class="two-col">
+        <article class="panel">
+          <div class="card-head">
+            <span class="muted">SUPPORT</span>
+            <span class="chip success">HỖ TRỢ</span>
+          </div>
+          <div id="supportZones" class="zone-list empty-state">Chưa có dữ liệu.</div>
+        </article>
+
+        <article class="panel">
+          <div class="card-head">
+            <span class="muted">RESISTANCE</span>
+            <span class="chip danger">KHÁNG CỰ</span>
+          </div>
+          <div id="resistanceZones" class="zone-list empty-state">Chưa có dữ liệu.</div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="card-head">
+          <div>
+            <span class="muted">PHÂN TÍCH ĐA KHUNG</span>
+            <h2 id="engineTitle">4H 45% · 1H 35% · 15m 20%</h2>
+          </div>
+          <span id="apiStatus" class="chip">API</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Khung</th>
+                <th>Trọng số</th>
+                <th>Xu hướng</th>
+                <th>Bias</th>
+                <th>RSI14</th>
+                <th>EMA20</th>
+                <th>EMA50</th>
+                <th>EMA200</th>
+                <th>MACD H</th>
+              </tr>
+            </thead>
+            <tbody id="timeframeRows">
+              <tr><td colspan="9" class="empty-cell">Chưa phân tích.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="two-col">
+        <article class="panel">
+          <div class="card-head">
+            <span class="muted">LÝ DO TÍN HIỆU</span>
+          </div>
+          <ul id="reasonList" class="reason-list">
+            <li>Chưa có dữ liệu.</li>
+          </ul>
+        </article>
+
+        <article class="panel">
+          <div class="card-head">
+            <span class="muted">THÔNG TIN ENGINE</span>
+          </div>
+          <div class="engine-notes">
+            <p><strong>Ngắn hạn:</strong> 4H 45% · 1H 35% · 15m 20%. Không dùng 5m.</p>
+            <p><strong>Dài hạn:</strong> 1W 30% · 1D 30% · 12H 20% · 4H 20%.</p>
+            <p>S/R dùng pivot + gom cụm đa khung; Entry/SL/TP dựa trên ATR và vùng giá lân cận.</p>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="card-head">
+          <span class="muted">LỊCH SỬ PHÂN TÍCH TRÊN THIẾT BỊ</span>
+          <button id="clearHistoryBtn" class="ghost-btn">Xóa lịch sử</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Thời gian</th>
+                <th>Coin</th>
+                <th>Mode</th>
+                <th>Tín hiệu</th>
+                <th>Score</th>
+                <th>Giá</th>
+              </tr>
+            </thead>
+            <tbody id="historyRows">
+              <tr><td colspan="6" class="empty-cell">Chưa có lịch sử.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="notice">
+        <strong>Lưu ý:</strong> Đây là công cụ phân tích kỹ thuật theo luật cố định từ dữ liệu thị trường công khai.
+        “Độ đồng thuận” không phải xác suất thắng và không phải khuyến nghị đầu tư.
+      </section>
+    </main>
+
+    <footer>
+      <span>Binance Signal Web · Static PWA</span>
+      <button id="installBtn" class="ghost-btn hidden">Cài ứng dụng</button>
+    </footer>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="./app.js" defer></script>
+</body>
+</html>
