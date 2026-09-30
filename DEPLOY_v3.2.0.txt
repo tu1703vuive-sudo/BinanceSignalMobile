@@ -1,0 +1,29 @@
+BINANCE SIGNAL MOBILE v3.2.0 - DEPLOY GITHUB PAGES
+=================================================
+
+Muc tieu ban nay:
+- Giu nguyen UI hien tai.
+- Giu nguyen Swing Engine.
+- Chuan hoa Short Engine V2.2.
+- Short chi dung 15m + 1h + 4h.
+- Trong so: 15m 20%, 1h 35%, 4h 45%.
+- Loai 5m khoi Short analysis va Short Support/Resistance.
+- Bump cache/PWA de trinh duyet lay ban app.js moi.
+
+FILE THAY DOI:
+- app.js
+- index.html
+- sw.js
+- README.md
+
+CACH UPLOAD:
+1. Giai nen ZIP.
+2. Vao branch dang publish GitHub Pages.
+3. Upload de cac file nam o ROOT, cung cap voi index.html hien tai.
+4. Commit changes.
+5. Mo website bang tab an danh de kiem tra.
+6. Neu may cu van giu cache: hard refresh hoac dong/mo lai PWA.
+
+Luu y:
+- Khong xoa localStorage cua nguoi dung.
+- Watchlist/favorite/coin da chon van giu nguyen.

@@ -1,5 +1,14 @@
 'use strict';
 
+const APP_VERSION='3.2.0';
+const ENGINE_VERSION='short-v2.2';
+const SHORT_STRATEGY=Object.freeze({
+  timeframes:['15m','1h','4h'],
+  weights:Object.freeze({'4h':45,'1h':35,'15m':20}),
+  watchThreshold:45,
+  minRR:1.5
+});
+
 const MARKET_CONFIG={
   futures:{
     label:'FUTURES',
@@ -11,7 +20,7 @@ const MARKET_CONFIG={
 };
 const DEFAULT_SYMBOLS=['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT'];
 const CHART_TIMEFRAMES=['15m','1h','4h','12h','1d','1w','1M'];
-const ANALYSIS_TIMEFRAMES={swing:['1M','1w','1d','12h','4h'],short:['5m','15m','1h','4h']};
+const ANALYSIS_TIMEFRAMES={swing:['1M','1w','1d','12h','4h'],short:[...SHORT_STRATEGY.timeframes]};
 const storedMode=localStorage.getItem('bsm_mode')||'short';
 const storedMarket='futures';
 
@@ -127,10 +136,10 @@ function strength(frames,profile){
     if(s.size>=2||has12)return'STRONG';
     return has4?'MEDIUM':'SWING';
   }
-  let has4=s.has('4H'),has1=s.has('1H'),has15=s.has('15m'),has5=s.has('5m');
-  if((has4&&has1)||(has1&&has15&&has5))return'VERY STRONG';
+  let has4=s.has('4H'),has1=s.has('1H'),has15=s.has('15m');
+  if(has4&&has1)return'VERY STRONG';
   if(has4||(has1&&has15))return'STRONG';
-  if(has1||(has15&&has5))return'MEDIUM';
+  if(has1||has15)return'MEDIUM';
   return'SHORT TERM';
 }
 function zone(low,high,profile,...frames){let fr=[...new Set(frames)];return{low:Math.min(low,high),high:Math.max(low,high),frames:fr,strength:strength(fr,profile),get mid(){return(this.low+this.high)/2}}}
@@ -236,7 +245,7 @@ function buildAdaptiveWickResistanceR1R2(c){
   }
   return out.sort((a,b)=>a.mid-b.mid);
 }
-const frameOrder={'1M':0,'1W':1,'1D':2,'12H':3,'4H':4,'1H':5,'15m':6,'5m':7};
+const frameOrder={'1M':0,'1W':1,'1D':2,'12H':3,'4H':4,'1H':5,'15m':6};
 function mergeZones(zones,profile,tolFactor){let sorted=[...zones].sort((a,b)=>a.low-b.low),m=[];for(let z of sorted){if(!m.length){m.push(z);continue}let last=m.at(-1),tol=Math.max(Math.max(last.high-last.low,1e-8),Math.max(z.high-z.low,1e-8))*tolFactor;if(z.low<=last.high+tol){let fr=[...new Set([...last.frames,...z.frames])].sort((a,b)=>(frameOrder[a]??9)-(frameOrder[b]??9));m[m.length-1]=zone(Math.min(last.low,z.low),Math.max(last.high,z.high),profile,...fr)}else m.push(z)}return m}
 function rankSupports(z,p){return [...z].sort((a,b)=>((a.mid>p?1:0)-(b.mid>p?1:0))||Math.abs(p-a.mid)-Math.abs(p-b.mid))}
 function rankRes(z,p){return [...z].sort((a,b)=>((a.mid<p?1:0)-(b.mid<p?1:0))||Math.abs(a.mid-p)-Math.abs(b.mid-p))}
@@ -283,8 +292,8 @@ function analyzeSwing(data){
 }
 
 function analyzeShort(data){
-  let C5=closedCandles(data['5m']),C15=closedCandles(data['15m']),H1=closedCandles(data['1h']),H4=closedCandles(data['4h']);
-  if(C5.length<150||C15.length<210||H1.length<210||H4.length<210)return basicWait('NGẮN HẠN','Chưa đủ dữ liệu nến đã đóng để tính tín hiệu và S/R.');
+  let C15=closedCandles(data['15m']),H1=closedCandles(data['1h']),H4=closedCandles(data['4h']);
+  if(C15.length<210||H1.length<210||H4.length<210)return basicWait('NGẮN HẠN','Chưa đủ dữ liệu nến đã đóng để tính tín hiệu và S/R.');
 
   let reasons=[],t4=emaTrend(H4),t1=emaTrend(H1),str=marketStructure(H1);
   reasons.push(
@@ -300,9 +309,14 @@ function analyzeShort(data){
   else reasons.push(`○ 15m: timing chưa đồng thuận (RSI ${r15.toFixed(1)})`);
   if(r15>72)reasons.push('⚠ 15m: RSI cao, tránh đuổi LONG');else if(r15<28)reasons.push('⚠ 15m: RSI thấp, tránh đuổi SHORT');
 
-  reasons.push('○ S/R: thuật toán V3.1.4 gốc (4H + 1H + 15m + 5m; 5m chỉ dùng cho S/R).');
-  // Trọng số tín hiệu Ngắn hạn: 4H 50% • 1H 30% • 15m 20%. 5m không tham gia chấm điểm.
-  let score=clamp(t4*50+t1*30+t15*20,-100,100);
+  reasons.push(`○ Short ${ENGINE_VERSION}: S/R dùng 4H + 1H + 15m; 5m đã loại hoàn toàn.`);
+  // Canonical Short V2.2: 4H 45% • 1H 35% • 15m 20%.
+  let score=clamp(
+    t4*SHORT_STRATEGY.weights['4h']+
+    t1*SHORT_STRATEGY.weights['1h']+
+    t15*SHORT_STRATEGY.weights['15m'],
+    -100,100
+  );
   let av=avgPrevVol(C15,20),vr=av?last15.volume/av:0;
   if(vr>=1.2)reasons.push(last15.close>=last15.open?`✓ Volume 15m mua tăng (${vr.toFixed(1)}x trung bình)`:`✓ Volume 15m bán tăng (${vr.toFixed(1)}x trung bình)`);
   else reasons.push('○ Volume 15m chưa nổi bật');
@@ -316,14 +330,12 @@ function analyzeShort(data){
   let rawSupports=[
     buildSupport(H4,80,'4H',.40,'short'),
     buildSupport(H1,100,'1H',.32,'short'),
-    buildSupport(C15,120,'15m',.25,'short'),
-    buildSupport(C5,150,'5m',.20,'short')
+    buildSupport(C15,120,'15m',.25,'short')
   ];
   let rawResistances=[
     buildResistance(H4,80,'4H',.40,'short'),
     buildResistance(H1,100,'1H',.32,'short'),
-    buildResistance(C15,120,'15m',.25,'short'),
-    buildResistance(C5,150,'5m',.20,'short')
+    buildResistance(C15,120,'15m',.25,'short')
   ];
   let su=rankSupports(mergeZones(rawSupports,'short',.28),p).slice(0,4);
   let re=rankRes(mergeZones(rawResistances,'short',.28),p).slice(0,4);
@@ -339,8 +351,8 @@ function analyzeShort(data){
   if(conflict){reasons.unshift('⚠ 4H và 1H xung đột → ưu tiên WAIT.');}
   else if(t4>0&&t1>0&&t15>0&&nearL&&nearSupport&&r15<72)kind='LONG';
   else if(t4<0&&t1<0&&t15<0&&nearS&&nearResistance&&r15>28)kind='SHORT';
-  else if(score>=45&&t4>0&&t1>=0&&ps)kind='WATCH LONG';
-  else if(score<=-45&&t4<0&&t1<=0&&pr)kind='WATCH SHORT';
+  else if(score>=SHORT_STRATEGY.watchThreshold&&t4>0&&t1>=0&&ps)kind='WATCH LONG';
+  else if(score<=-SHORT_STRATEGY.watchThreshold&&t4<0&&t1<=0&&pr)kind='WATCH SHORT';
 
   let out={kind,score,mode:'NGẮN HẠN',timeframes:`${tf('4H',t4)}   ${tf('1H',t1)}   ${tf('15m',t15)}`,reasons:reasons.slice(0,10),supports:su,resistances:re,primarySupport:ps,primaryResistance:pr,ref:last15.close};
 
@@ -352,10 +364,10 @@ function analyzeShort(data){
     let targets=re.filter(z=>z.low>mid).map(z=>z.low).sort((a,b)=>a-b);
     let tp1=targets[0],tp2=targets[1],tp3=targets[2];
     let rr1=risk>0&&tp1!=null?(tp1-mid)/risk:0;
-    if(risk<=0||tp1==null||rr1<1.5){
+    if(risk<=0||tp1==null||rr1<SHORT_STRATEGY.minRR){
       out.kind='WAIT';
-      out.hint=tp1==null?'WAIT - chưa có kháng cự phía trên đủ rõ để đặt TP1.':`WAIT - TP1 chỉ đạt khoảng ${rr1.toFixed(2)}R, thấp hơn mức tối thiểu 1.5R.`;
-      out.reasons.unshift(tp1==null?'⚠ Chưa xác định được TP1 từ vùng kháng cự phía trên.':`⚠ Risk/Reward tới TP1 = ${rr1.toFixed(2)}R < 1.5R → không vào LONG.`);
+      out.hint=tp1==null?'WAIT - chưa có kháng cự phía trên đủ rõ để đặt TP1.':`WAIT - TP1 chỉ đạt khoảng ${rr1.toFixed(2)}R, thấp hơn mức tối thiểu ${SHORT_STRATEGY.minRR.toFixed(1)}R.`;
+      out.reasons.unshift(tp1==null?'⚠ Chưa xác định được TP1 từ vùng kháng cự phía trên.':`⚠ Risk/Reward tới TP1 = ${rr1.toFixed(2)}R < ${SHORT_STRATEGY.minRR.toFixed(1)}R → không vào LONG.`);
     }else{
       Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1,tp2,tp3,trigger:'Giá ở Support + 15m đóng xác nhận tăng (EMA20 / RSI / MACD).',invalid:`Setup LONG mất hiệu lực nếu giá phá xuống dưới khoảng ${fmt(sl)}.`,rr1});
       out.reasons.unshift(`✓ LONG: Entry theo Support, SL dưới Support 0.35 ATR4H, TP1 tại Resistance gần nhất (${rr1.toFixed(2)}R).`);
@@ -370,10 +382,10 @@ function analyzeShort(data){
     let targets=su.filter(z=>z.high<mid).map(z=>z.high).sort((a,b)=>b-a);
     let tp1=targets[0],tp2=targets[1],tp3=targets[2];
     let rr1=risk>0&&tp1!=null?(mid-tp1)/risk:0;
-    if(risk<=0||tp1==null||rr1<1.5){
+    if(risk<=0||tp1==null||rr1<SHORT_STRATEGY.minRR){
       out.kind='WAIT';
-      out.hint=tp1==null?'WAIT - chưa có hỗ trợ phía dưới đủ rõ để đặt TP1.':`WAIT - TP1 chỉ đạt khoảng ${rr1.toFixed(2)}R, thấp hơn mức tối thiểu 1.5R.`;
-      out.reasons.unshift(tp1==null?'⚠ Chưa xác định được TP1 từ vùng hỗ trợ phía dưới.':`⚠ Risk/Reward tới TP1 = ${rr1.toFixed(2)}R < 1.5R → không vào SHORT.`);
+      out.hint=tp1==null?'WAIT - chưa có hỗ trợ phía dưới đủ rõ để đặt TP1.':`WAIT - TP1 chỉ đạt khoảng ${rr1.toFixed(2)}R, thấp hơn mức tối thiểu ${SHORT_STRATEGY.minRR.toFixed(1)}R.`;
+      out.reasons.unshift(tp1==null?'⚠ Chưa xác định được TP1 từ vùng hỗ trợ phía dưới.':`⚠ Risk/Reward tới TP1 = ${rr1.toFixed(2)}R < ${SHORT_STRATEGY.minRR.toFixed(1)}R → không vào SHORT.`);
     }else{
       Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1,tp2,tp3,trigger:'Giá ở Resistance + 15m đóng xác nhận giảm (EMA20 / RSI / MACD).',invalid:`Setup SHORT mất hiệu lực nếu giá phá lên trên khoảng ${fmt(sl)}.`,rr1});
       out.reasons.unshift(`✓ SHORT: Entry theo Resistance, SL trên Resistance 0.35 ATR4H, TP1 tại Support gần nhất (${rr1.toFixed(2)}R).`);
