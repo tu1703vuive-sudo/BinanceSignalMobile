@@ -1,917 +1,503 @@
-(() => {
-  "use strict";
+'use strict';
 
-  const API_BASES = [
-    "https://data-api.binance.vision",
-    "https://api.binance.com",
-    "https://api1.binance.com",
-    "https://api2.binance.com",
-    "https://api3.binance.com"
+const API_BASES=['https://api.binance.com','https://api1.binance.com','https://api2.binance.com','https://api3.binance.com'];
+const WS_BASE='wss://stream.binance.com:9443/stream?streams=';
+const DEFAULT_SYMBOLS=['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT'];
+const CHART_TIMEFRAMES=['15m','1h','4h','12h','1d','1w','1M'];
+const ANALYSIS_TIMEFRAMES={swing:['1M','1w','1d','12h','4h'],short:['5m','15m','1h','4h']};
+const storedMode=localStorage.getItem('bsm_mode')||'swing';
+const state={
+  mode:storedMode,
+  chartTf:localStorage.getItem('bsm_chart_tf')||'4h',
+  symbols:JSON.parse(localStorage.getItem('bsm_symbols')||'null')||DEFAULT_SYMBOLS,
+  favorites:new Set(JSON.parse(localStorage.getItem('bsm_favorites')||'["BTCUSDT"]')),
+  selected:localStorage.getItem('bsm_selected')||'BTCUSDT',
+  tickers:new Map(), candles:new Map(), liveKlines:{}, ws:null, klineWs:null, klineReconnectTimer:null, analysis:null, deferredPrompt:null
+};
+if(!CHART_TIMEFRAMES.includes(state.chartTf)) state.chartTf='4h';
+
+const $=id=>document.getElementById(id);
+const els={
+  conn:$('connStatus'), swing:$('modeSwing'), short:$('modeShort'), input:$('symbolInput'), add:$('addSymbolBtn'), refresh:$('refreshBtn'),
+  watch:$('watchList'), count:$('watchCount'), symbol:$('selectedSymbol'), mode:$('modeLabel'), price:$('selectedPrice'), change:$('selectedChange'),
+  badge:$('signalBadge'), score:$('scoreText'), tf:$('timeframes'), hint:$('planHint'), canvas:$('chartCanvas'), chartTitle:$('chartTitle'), updated:$('updatedAt'),
+  entry:$('entryValue'), sl:$('slValue'), tp1:$('tp1Value'), tp2:$('tp2Value'), tp3:$('tp3Value'), invalid:$('invalidValue'), trigger:$('triggerText'), breakout:$('breakoutText'),
+  supports:$('supportList'), resistances:$('resistanceList'), reasons:$('reasonsList'), install:$('installBtn'), tfSelector:$('timeframeSelector')
+};
+
+function persist(){
+  localStorage.setItem('bsm_mode',state.mode); localStorage.setItem('bsm_chart_tf',state.chartTf); localStorage.setItem('bsm_symbols',JSON.stringify(state.symbols));
+  localStorage.setItem('bsm_favorites',JSON.stringify([...state.favorites])); localStorage.setItem('bsm_selected',state.selected);
+}
+function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
+function avg(arr){return arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:0;}
+function fmt(n){ if(n==null||!Number.isFinite(n)) return '--'; const a=Math.abs(n); let d=a>=1000?2:a>=1?4:a>=.01?6:8; return n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:d}); }
+function pct(n){return `${n>=0?'+':''}${Number(n||0).toFixed(2)}%`;}
+function nowMs(){return Date.now();}
+function closedCandles(c){return c.filter(x=>x.closeTime<nowMs());}
+function ema(values,period){ if(!values.length)return 0; const seed=Math.min(period,values.length); let e=avg(values.slice(0,seed)),m=2/(period+1); for(let i=seed;i<values.length;i++) e=(values[i]-e)*m+e; return e; }
+function emaSeries(v,p){if(!v.length)return[];let e=v[0],m=2/(p+1),r=[e];for(let i=1;i<v.length;i++){e=(v[i]-e)*m+e;r.push(e)}return r}
+function rsi(closes,p=14){if(closes.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=closes[i]-closes[i-1];if(d>=0)g+=d;else l-=d}g/=p;l/=p;for(let i=p+1;i<closes.length;i++){let d=closes[i]-closes[i-1],gg=d>0?d:0,ll=d<0?-d:0;g=(g*(p-1)+gg)/p;l=(l*(p-1)+ll)/p}if(l===0)return 100;let rs=g/l;return 100-(100/(1+rs))}
+function macd(closes){if(closes.length<35)return{line:0,signal:0,hist:0};let a=emaSeries(closes,12),b=emaSeries(closes,26),m=a.map((x,i)=>x-b[i]),s=emaSeries(m,9);return{line:m.at(-1),signal:s.at(-1),hist:m.at(-1)-s.at(-1)}}
+function atr(c,p=14){if(c.length<2)return 0;let tr=[];for(let i=Math.max(1,c.length-p);i<c.length;i++){let x=c[i],pc=c[i-1].close;tr.push(Math.max(x.high-x.low,Math.abs(x.high-pc),Math.abs(x.low-pc)))}return avg(tr)}
+function avgPrevVol(c,p=20){if(c.length<=1)return 0;let end=c.length-1,start=Math.max(0,end-p);return avg(c.slice(start,end).map(x=>x.volume))}
+function recentSupport(c,p){return Math.min(...c.slice(-Math.min(p,c.length)).map(x=>x.low));}
+function recentResistance(c,p){return Math.max(...c.slice(-Math.min(p,c.length)).map(x=>x.high));}
+function marketStructure(c){if(c.length<24)return 0;let r=c.slice(-10),p=c.slice(-20,-10),rh=Math.max(...r.map(x=>x.high)),rl=Math.min(...r.map(x=>x.low)),ph=Math.max(...p.map(x=>x.high)),pl=Math.min(...p.map(x=>x.low));if(rh>ph&&rl>pl)return 1;if(rh<ph&&rl<pl)return-1;return 0}
+function emaTrend(c){if(c.length<205)return 0;let v=c.map(x=>x.close),cl=v.at(-1),e50=ema(v,50),e200=ema(v,200);if(cl>e50&&e50>e200)return 1;if(cl<e50&&e50<e200)return-1;return 0}
+function trend(c,fast,slow){if(c.length<slow+2)return 0;let v=c.map(x=>x.close),cl=v.at(-1),f=ema(v,fast),s=ema(v,slow);if(cl>f&&f>s)return 1;if(cl<f&&f<s)return-1;return 0}
+function adaptiveTrend(c){if(c.length>=205){let t=emaTrend(c);if(t)return t}return trend(c,20,50)}
+function safeAtr(c,fallback){let a=atr(c);return a>0?a:Math.max(fallback,1e-8)}
+function pivotWindow(tf){return tf==='15m'?3:tf==='1H'?4:tf==='4H'?4:tf==='12H'?5:tf==='1D'?5:tf==='1W'?4:3}
+function getPivotLevels(c,lookback,kind,tf){
+  let subset=c.slice(-Math.min(lookback,c.length)); if(subset.length<9) return [];
+  let w=pivotWindow(tf), out=[];
+  for(let i=w;i<subset.length-w;i++){
+    let cur=kind==='support'?subset[i].low:subset[i].high, ok=true;
+    for(let j=1;j<=w;j++){
+      if(kind==='support'){ if(cur>subset[i-j].low||cur>subset[i+j].low){ok=false;break} }
+      else { if(cur<subset[i-j].high||cur<subset[i+j].high){ok=false;break} }
+    }
+    if(ok) out.push({price:cur,index:i,candle:subset[i]});
+  }
+  return out;
+}
+function pivotZones(c,lookback,tf,atrWidth,profile,kind,maxCount=1){
+  let subset=c.slice(-Math.min(lookback,c.length)), ref=subset.at(-1)?.close||c.at(-1)?.close||0;
+  let a=safeAtr(subset,Math.max(ref*.01,1e-8)), mr=profile==='swing'?.0016:.00065, width=Math.max(a*atrWidth*.72,Math.max(ref*mr,1e-8));
+  let pivots=getPivotLevels(c,lookback,kind,tf).map(x=>x.price);
+  let baseline=kind==='support'?recentSupport(subset,subset.length):recentResistance(subset,subset.length);
+  if(!pivots.length) pivots=[baseline];
+  let sameSide=kind==='support'?pivots.filter(v=>v<=ref):pivots.filter(v=>v>=ref);
+  let usable=(sameSide.length?sameSide:pivots).sort((x,y)=>kind==='support'?y-x:x-y);
+  let zones=[];
+  for(let anchor of usable){
+    if(zones.some(z=>Math.abs(z.mid-anchor)<=a*.45)) continue;
+    let cluster=usable.filter(v=>Math.abs(v-anchor)<=a*.35);
+    if(!cluster.length) cluster=[anchor];
+    let low=Math.min(...cluster), high=Math.max(...cluster);
+    let z=kind==='support'?zone(low,Math.max(high,anchor+width*.55),profile,tf):zone(Math.max(0,Math.min(low,anchor-width*.55)),high,profile,tf);
+    zones.push(z);
+    if(zones.length>=maxCount) break;
+  }
+  return zones.length?zones:[kind==='support'?zone(baseline,baseline+width,profile,tf):zone(Math.max(0,baseline-width),baseline,profile,tf)];
+}
+function strength(frames,profile){
+  let s=new Set(frames);
+  if(profile==='swing'){
+    let hasM=s.has('1M'),hasW=s.has('1W'),hasD=s.has('1D'),has12=s.has('12H'),has4=s.has('4H');
+    if(hasM||(hasW&&s.size>=2)||(hasD&&(has12||has4)))return'VERY STRONG';
+    if(hasW||hasD)return'MAJOR';
+    if(s.size>=2||has12)return'STRONG';
+    return has4?'MEDIUM':'SWING';
+  }
+  let has4=s.has('4H'),has1=s.has('1H'),has15=s.has('15m'),has5=s.has('5m');
+  if((has4&&has1)||(has1&&has15&&has5))return'VERY STRONG';
+  if(has4||(has1&&has15))return'STRONG';
+  if(has1||(has15&&has5))return'MEDIUM';
+  return'SHORT TERM';
+}
+function zone(low,high,profile,...frames){let fr=[...new Set(frames)];return{low:Math.min(low,high),high:Math.max(low,high),frames:fr,strength:strength(fr,profile),get mid(){return(this.low+this.high)/2}}}
+function buildSupport(c,lookback,tf,atrWidth,profile){
+  let n=Math.min(lookback,c.length),support=recentSupport(c,n),a=safeAtr(c,Math.max(support*.01,1e-8));
+  let minWidthRatio=profile==='swing'?.0018:.0008;
+  let width=Math.max(a*atrWidth,Math.max(support*minWidthRatio,1e-8));
+  return zone(support,support+width,profile,tf);
+}
+function buildResistance(c,lookback,tf,atrWidth,profile){
+  let n=Math.min(lookback,c.length),resistance=recentResistance(c,n),a=safeAtr(c,Math.max(resistance*.01,1e-8));
+  let minWidthRatio=profile==='swing'?.0018:.0008;
+  let width=Math.max(a*atrWidth,Math.max(resistance*minWidthRatio,1e-8));
+  return zone(Math.max(0,resistance-width),resistance,profile,tf);
+}
+function buildSupportZones(c,lookback,tf,atrWidth,profile,maxCount=2){return[buildSupport(c,lookback,tf,atrWidth,profile)]}
+function buildResistanceZones(c,lookback,tf,atrWidth,profile,maxCount=2){return[buildResistance(c,lookback,tf,atrWidth,profile)]}
+function wickResistanceClusters4H(c,lookback){
+  let all=closedCandles(c),subset=all.slice(-Math.min(lookback,all.length));
+  if(!subset.length)return{zones:[],ref:0,atr:0,tol:0};
+  let ref=subset.at(-1).close,a=safeAtr(subset,Math.max(ref*.008,1e-8));
+  let tol=Math.max(a*.22,ref*.0012),pad=Math.max(a*.07,ref*.00035);
+  let pts=[];
+  subset.forEach((x,i)=>{
+    let bodyTop=Math.max(x.open,x.close),range=Math.max(x.high-x.low,1e-8),wick=Math.max(0,x.high-bodyTop);
+    let minWick=Math.max(range*.08,a*.025);
+    if(wick<minWick)return;
+    if(x.high<ref-a*.10)return;
+    pts.push({price:x.high,wick,wickRatio:wick/range,age:subset.length-1-i});
+  });
+  if(!pts.length){
+    let hi=recentResistance(subset,subset.length),z=Object.assign(zone(Math.max(ref,hi-pad),hi+pad,'short','4H'),{touches:1,wickScore:0,rankScore:1,source:'4H Wick Cluster',lookback});
+    return{zones:[z],ref,atr:a,tol};
+  }
+  pts.sort((a,b)=>a.price-b.price);
+  let clusters=[];
+  for(let p of pts){
+    let c0=clusters.at(-1);
+    if(!c0||p.price-c0.max>tol){clusters.push({items:[p],min:p.price,max:p.price});continue}
+    c0.items.push(p);c0.max=p.price;
+  }
+  let zones=clusters.map(c0=>{
+    let prices=c0.items.map(x=>x.price),weights=c0.items.map(x=>1+Math.min(x.wickRatio,1));
+    let wsum=weights.reduce((a,b)=>a+b,0),center=prices.reduce((s,v,i)=>s+v*weights[i],0)/wsum;
+    let touches=c0.items.length,wickScore=c0.items.reduce((s,x)=>s+x.wickRatio,0);
+    let recency=c0.items.reduce((s,x)=>s+1/(1+x.age*.08),0);
+    let z=zone(Math.max(0,Math.min(...prices)-pad),Math.max(...prices)+pad,'short','4H');
+    z.touches=touches;z.wickScore=wickScore;z.center=center;z.rankScore=touches*100+wickScore*18+recency*3;z.source='4H Wick Cluster';z.lookback=lookback;
+    return z;
+  }).filter(z=>z.high>=ref-a*.10);
+  zones.sort((a,b)=>b.rankScore-a.rankScore||Math.abs(a.mid-ref)-Math.abs(b.mid-ref));
+  return{zones,ref,atr:a,tol};
+}
+function buildAdaptiveWickResistanceR1R2(c){
+  let all=closedCandles(c); if(!all.length) return [];
+  let ref=all.at(-1).close, atr4=safeAtr(all.slice(-30), Math.max(ref*.008,1e-8));
+  let scanWindows=[]; for(let w=18; w<=160; w+=6) scanWindows.push(w);
+  let pool=[];
+  for(let w of scanWindows){
+    let data=wickResistanceClusters4H(c,w);
+    (data.zones||[]).forEach(z=>{
+      if(z.mid<=ref) return;
+      let key=pool.find(p=>Math.abs(p.mid-z.mid)<=Math.max(atr4*.55, ref*.0018));
+      if(!key){
+        pool.push({low:z.low,high:z.high,mid:z.mid,touches:z.touches||1,wickScore:z.wickScore||0,scanHits:1,minLookback:w,maxLookback:w,source:'4H Adaptive Wick'});
+      }else{
+        key.low=Math.min(key.low,z.low); key.high=Math.max(key.high,z.high); key.mid=(key.low+key.high)/2;
+        key.touches=Math.max(key.touches,z.touches||1); key.wickScore=Math.max(key.wickScore,z.wickScore||0); key.scanHits+=1; key.maxLookback=w;
+      }
+    });
+    let current=pool.filter(z=>z.touches>=2 && z.mid>ref).sort((a,b)=>a.mid-b.mid);
+    let minGap=Math.max(atr4*.9, ref*.003);
+    if(current.length>=2){
+      let r1c=current[0];
+      let r2c=current.find(z=>z.mid>=r1c.mid+minGap && z.low>r1c.high-atr4*.15);
+      if(r1c && r2c && w>=42) break;
+    }
+  }
+  if(!pool.length){
+    let hi=recentResistance(all,30), pad=Math.max(atr4*.12, ref*.0004); return [Object.assign(zone(Math.max(ref,hi-pad),hi+pad,'short','4H'),{label:'R1',touches:1,lookbackUsed:30,source:'4H Adaptive Wick'})];
+  }
+  let candidates=pool.filter(z=>z.mid>ref).map(z=>{
+    let dist=Math.max(0,(z.mid-ref)/Math.max(atr4,1e-8));
+    z.rankScore=(z.touches||1)*90 + (z.scanHits||1)*18 + (z.wickScore||0)*14 - dist*6;
+    return z;
+  }).sort((a,b)=> b.rankScore-a.rankScore || a.mid-b.mid);
+  if(!candidates.length) candidates=pool.sort((a,b)=>a.mid-b.mid);
+  let nearestSorted=[...candidates].sort((a,b)=>a.mid-b.mid);
+  let r1=nearestSorted.find(z=>z.touches>=2) || nearestSorted[0] || candidates[0];
+  if(!r1) return [];
+  let minGap=Math.max(atr4*.9, ref*.003);
+  let r2=candidates.filter(z=>z!==r1 && z.mid>=r1.mid+minGap && z.low>r1.high-atr4*.15)
+                   .sort((a,b)=>b.rankScore-a.rankScore || a.mid-b.mid)[0];
+  if(!r2){
+    r2=nearestSorted.find(z=>z!==r1 && z.mid>r1.mid+minGap/2);
+  }
+  let out=[];
+  let z1=Object.assign(zone(r1.low,r1.high,'short','4H'),{label:'R1',touches:r1.touches||1,lookbackUsed:r1.maxLookback||r1.minLookback||30,scanHits:r1.scanHits||1,source:'4H Adaptive Wick'});
+  out.push(z1);
+  if(r2){
+    let z2=Object.assign(zone(r2.low,r2.high,'short','4H'),{label:'R2',touches:r2.touches||1,lookbackUsed:r2.maxLookback||r2.minLookback||60,scanHits:r2.scanHits||1,source:'4H Adaptive Wick'});
+    out.push(z2);
+  }
+  return out.sort((a,b)=>a.mid-b.mid);
+}
+const frameOrder={'1M':0,'1W':1,'1D':2,'12H':3,'4H':4,'1H':5,'15m':6,'5m':7};
+function mergeZones(zones,profile,tolFactor){let sorted=[...zones].sort((a,b)=>a.low-b.low),m=[];for(let z of sorted){if(!m.length){m.push(z);continue}let last=m.at(-1),tol=Math.max(Math.max(last.high-last.low,1e-8),Math.max(z.high-z.low,1e-8))*tolFactor;if(z.low<=last.high+tol){let fr=[...new Set([...last.frames,...z.frames])].sort((a,b)=>(frameOrder[a]??9)-(frameOrder[b]??9));m[m.length-1]=zone(Math.min(last.low,z.low),Math.max(last.high,z.high),profile,...fr)}else m.push(z)}return m}
+function rankSupports(z,p){return [...z].sort((a,b)=>((a.mid>p?1:0)-(b.mid>p?1:0))||Math.abs(p-a.mid)-Math.abs(p-b.mid))}
+function rankRes(z,p){return [...z].sort((a,b)=>((a.mid<p?1:0)-(b.mid<p?1:0))||Math.abs(a.mid-p)-Math.abs(b.mid-p))}
+function nearestSupport(z,p){return rankSupports(z,p)[0]}
+function nearestResistance(z,p){return rankRes(z,p)[0]}
+function tf(name,s){return `${name} ${s>0?'↑':s<0?'↓':'→'}`}
+function reasonTf(name,s,role){return s>0?`✓ ${name}: bullish (${role})`:s<0?`✓ ${name}: bearish (${role})`:`○ ${name}: chưa rõ xu hướng (${role})`}
+function selectDistinct(candidates,risk,asc){let r=[],min=Math.max(risk*.1,1e-8);for(let c of candidates){if(r.length&&Math.abs(c-r.at(-1))<min)continue;r.push(c);if(r.length===3)break}while(r.length<3){let step=Math.max(risk,1e-8),anchor=r.length?r.at(-1):0;r.push(r.length===0?(asc?step:-step):(asc?anchor+step:anchor-step))}return r}
+function longTargets(mid,risk,res){let min=mid+1.35*risk,c=[...res,mid+1.8*risk,mid+2.8*risk,mid+4*risk].filter(x=>x>=min).sort((a,b)=>a-b);return selectDistinct(c,risk,true)}
+function shortTargets(mid,risk,sup){let max=mid-1.35*risk,c=[...sup,mid-1.8*risk,mid-2.8*risk,mid-4*risk].filter(x=>x<=max).sort((a,b)=>b-a);return selectDistinct(c,risk,false)}
+
+function analyzeSwing(data){
+  let M=closedCandles(data['1M']),W=closedCandles(data['1w']),D=closedCandles(data['1d']),H12=closedCandles(data['12h']),H4=closedCandles(data['4h']);
+  if(W.length<55||D.length<60||H12.length<60||H4.length<60)return basicWait('DÀI HẠN','Chưa đủ dữ liệu nến đã đóng ở khung lớn.');
+  let reasons=[],tM=trend(M,6,12),tW=trend(W,20,50),tD=adaptiveTrend(D),t12=adaptiveTrend(H12),t4=trend(H4,20,50),strD=marketStructure(D);
+  reasons.push(reasonTf('1M',tM,'chu kỳ lớn'),reasonTf('1W',tW,'xu hướng chính'),reasonTf('1D',tD,'cấu trúc chính'),reasonTf('12H',t12,'xác nhận'));
+  reasons.push(strD>0?'✓ 1D: cấu trúc High/Low đang nâng dần':strD<0?'✓ 1D: cấu trúc High/Low đang hạ dần':'○ 1D: cấu trúc đang đi ngang / chưa xác nhận');
+  let c4=H4.map(x=>x.close),r4=rsi(c4),m4=macd(c4),e20=ema(c4,20),last4=H4.at(-1),trig=0;
+  if(last4.close>e20&&r4>=52&&r4<72&&m4.hist>0){trig=1;reasons.push(`✓ 4H: timing LONG xác nhận (RSI ${r4.toFixed(1)}, MACD dương)`)}
+  else if(last4.close<e20&&r4<=48&&r4>28&&m4.hist<0){trig=-1;reasons.push(`✓ 4H: timing SHORT xác nhận (RSI ${r4.toFixed(1)}, MACD âm)`)}else reasons.push(`○ 4H: timing vào lệnh chưa rõ (RSI ${r4.toFixed(1)})`);
+  // Trọng số Dài hạn: 1M 10% • 1W 25% • 1D 30% • 12H 20% • 4H 15%.
+  let t4Score=trig||t4,score=clamp(tM*10+tW*25+tD*30+t12*20+t4Score*15,-100,100);
+  let av=avgPrevVol(D,20),vr=av?D.at(-1).volume/av:0;reasons.push(vr>=1.2?`✓ Volume 1D nổi bật (${vr.toFixed(1)}x trung bình 20D)`:`○ Volume 1D bình thường (${vr.toFixed(1)}x trung bình 20D)`);
+  let p=last4.close,a4=safeAtr(H4,p*.01),aD=safeAtr(D,p*.025);
+  let su=[buildSupport(W,52,'1W',.75,'swing'),buildSupport(D,120,'1D',.65,'swing'),buildSupport(H12,140,'12H',.55,'swing'),buildSupport(H4,150,'4H',.50,'swing')];
+  let re=[buildResistance(W,52,'1W',.75,'swing'),buildResistance(D,120,'1D',.65,'swing'),buildResistance(H12,140,'12H',.55,'swing'),buildResistance(H4,150,'4H',.50,'swing')];
+  if(M.length>=8){su.push(buildSupport(M,Math.min(18,M.length),'1M',.85,'swing'));re.push(buildResistance(M,Math.min(18,M.length),'1M',.85,'swing'))}
+  su=rankSupports(mergeZones(su,'swing',.55),p).slice(0,4);re=rankRes(mergeZones(re,'swing',.55),p).slice(0,4);
+  let ps=nearestSupport(su,p),pr=nearestResistance(re,p);
+  let mw=tM&&tW&&tM!==tW,wd=tW&&tD&&tW!==tD,longBias=tW>0&&tD>0&&tM>=0,shortBias=tW<0&&tD<0&&tM<=0;
+  if(mw)reasons.unshift('⚠ 1M và 1W xung đột → chưa phù hợp để giữ vị thế dài.');else if(wd)reasons.unshift('⚠ 1W và 1D xung đột → ưu tiên WAIT.');
+  let nearS=ps&&p>=ps.low-.25*a4&&p<=ps.high+.55*a4,nearR=pr&&p<=pr.high+.25*a4&&p>=pr.low-.55*a4;
+  let closeR=pr&&pr.low>p&&pr.low-p<.75*aD,closeS=ps&&ps.high<p&&p-ps.high<.75*aD;
+  let kind='WAIT';if(mw||wd)kind='WAIT';else if(longBias&&score>=65&&trig>0&&nearS&&!closeR)kind='LONG';else if(shortBias&&score<=-65&&trig<0&&nearR&&!closeS)kind='SHORT';else if(longBias&&score>=45)kind='WATCH LONG';else if(shortBias&&score<=-45)kind='WATCH SHORT';
+  if(closeR&&longBias)reasons.unshift('⚠ Giá đang sát kháng cự khung lớn → chưa xác nhận LONG mới.');if(closeS&&shortBias)reasons.unshift('⚠ Giá đang sát hỗ trợ khung lớn → chưa xác nhận SHORT mới.');
+  let out={kind,score,mode:'DÀI HẠN',timeframes:`${tf('1M',tM)}   ${tf('1W',tW)}   ${tf('1D',tD)}   ${tf('12H',t12)}   ${tf('4H',t4Score)}`,reasons:reasons.slice(0,9),supports:su,resistances:re,primarySupport:ps,primaryResistance:pr,ref:D.at(-1).close};
+  if(kind==='LONG'&&ps){let lo=ps.low,hi=ps.high,sl=lo-.6*aD,mid=(lo+hi)/2,risk=mid-sl,t=longTargets(mid,risk,re.filter(z=>z.low>mid).map(z=>z.low));if(risk>0&&t[0]-mid>=1.35*risk){Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1:t[0],tp2:t[1],tp3:t[2],trigger:'4H đóng xác nhận tăng tại vùng hỗ trợ; 1D/1W vẫn giữ bias tăng.',invalid:`Luận điểm LONG yếu đi nếu 1D đóng dưới ${fmt(sl)}.`})}else{out.kind='WATCH LONG'}}
+  if(kind==='SHORT'&&pr){let lo=pr.low,hi=pr.high,sl=hi+.6*aD,mid=(lo+hi)/2,risk=sl-mid,t=shortTargets(mid,risk,su.filter(z=>z.high<mid).map(z=>z.high));if(risk>0&&mid-t[0]>=1.35*risk){Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1:t[0],tp2:t[1],tp3:t[2],trigger:'4H đóng xác nhận giảm tại vùng kháng cự; 1D/1W vẫn giữ bias giảm.',invalid:`Luận điểm SHORT yếu đi nếu 1D đóng trên ${fmt(sl)}.`})}else{out.kind='WATCH SHORT'}}
+  if(out.kind==='WATCH LONG'&&ps){out.watchLow=ps.low;out.watchHigh=ps.high;out.invalid=out.invalid||`Vùng canh mất ý nghĩa nếu 1D đóng dưới khoảng ${fmt(ps.low-.6*aD)}.`;out.hint=`CANH LONG vùng ${fmt(ps.low)} – ${fmt(ps.high)} [${ps.frames.join('+')}] ${ps.strength}. Đây là vùng chờ, chưa phải lệnh.`;if(pr)out.breakout=`Breakout thay thế: chờ 1D đóng trên ${fmt(pr.high)}, sau đó ưu tiên retest vùng vừa phá.`}
+  else if(out.kind==='WATCH SHORT'&&pr){out.watchLow=pr.low;out.watchHigh=pr.high;out.invalid=out.invalid||`Vùng canh mất ý nghĩa nếu 1D đóng trên khoảng ${fmt(pr.high+.6*aD)}.`;out.hint=`CANH SHORT vùng ${fmt(pr.low)} – ${fmt(pr.high)} [${pr.frames.join('+')}] ${pr.strength}. Đây là vùng chờ, chưa phải lệnh.`;if(ps)out.breakout=`Breakdown thay thế: chờ 1D đóng dưới ${fmt(ps.low)}, sau đó ưu tiên retest vùng vừa phá.`}
+  else if(out.kind==='WAIT') out.hint=ps&&pr?`WAIT - hỗ trợ gần ${fmt(ps.low)}–${fmt(ps.high)} [${ps.frames.join('+')}] • kháng cự gần ${fmt(pr.low)}–${fmt(pr.high)} [${pr.frames.join('+')}].`:'WAIT - chưa có setup vị thế rõ.';
+  else out.hint=`${out.kind}: Entry ${fmt(out.entryLow)} – ${fmt(out.entryHigh)} | SL ${fmt(out.sl)} | TP1 ${fmt(out.tp1)}`;
+  return out;
+}
+
+function analyzeShort(data){
+  let C5=closedCandles(data['5m']),C15=closedCandles(data['15m']),H1=closedCandles(data['1h']),H4=closedCandles(data['4h']);
+  if(C5.length<150||C15.length<210||H1.length<210||H4.length<210)return basicWait('NGẮN HẠN','Chưa đủ dữ liệu nến đã đóng để tính tín hiệu và S/R.');
+
+  let reasons=[],t4=emaTrend(H4),t1=emaTrend(H1),str=marketStructure(H1);
+  reasons.push(
+    t4>0?'✓ 4H: xu hướng chính tăng (giá > EMA50 > EMA200)':t4<0?'✓ 4H: xu hướng chính giảm (giá < EMA50 < EMA200)':'○ 4H: xu hướng chính chưa rõ',
+    t1>0?'✓ 1H: cấu trúc xu hướng tăng đồng thuận':t1<0?'✓ 1H: cấu trúc xu hướng giảm đồng thuận':'○ 1H: xu hướng chưa rõ',
+    str>0?'✓ 1H: High/Low đang nâng dần':str<0?'✓ 1H: High/Low đang hạ dần':'○ 1H: cấu trúc giá đi ngang / chưa xác nhận'
+  );
+
+  let v15=C15.map(x=>x.close),r15=rsi(v15),m15=macd(v15),e20=ema(v15,20),e50=ema(v15,50);
+  let a15=safeAtr(C15,C15.at(-1).close*.002),a4=safeAtr(H4,H4.at(-1).close*.01),last15=C15.at(-1),t15=0;
+  if(last15.close>e20&&r15>=52&&r15<72&&m15.hist>0){t15=1;reasons.push(`✓ 15m: timing LONG xác nhận (RSI ${r15.toFixed(1)}, MACD dương)`)}
+  else if(last15.close<e20&&r15<=48&&r15>28&&m15.hist<0){t15=-1;reasons.push(`✓ 15m: timing SHORT xác nhận (RSI ${r15.toFixed(1)}, MACD âm)`)}
+  else reasons.push(`○ 15m: timing chưa đồng thuận (RSI ${r15.toFixed(1)})`);
+  if(r15>72)reasons.push('⚠ 15m: RSI cao, tránh đuổi LONG');else if(r15<28)reasons.push('⚠ 15m: RSI thấp, tránh đuổi SHORT');
+
+  reasons.push('○ S/R: thuật toán V3.1.4 gốc (4H + 1H + 15m + 5m; 5m chỉ dùng cho S/R).');
+  // Trọng số tín hiệu Ngắn hạn: 4H 50% • 1H 30% • 15m 20%. 5m không tham gia chấm điểm.
+  let score=clamp(t4*50+t1*30+t15*20,-100,100);
+  let av=avgPrevVol(C15,20),vr=av?last15.volume/av:0;
+  if(vr>=1.2)reasons.push(last15.close>=last15.open?`✓ Volume 15m mua tăng (${vr.toFixed(1)}x trung bình)`:`✓ Volume 15m bán tăng (${vr.toFixed(1)}x trung bình)`);
+  else reasons.push('○ Volume 15m chưa nổi bật');
+
+  let nearL=last15.close>=e20-.3*a15&&last15.close<=e20+.8*a15&&last15.close>e50;
+  let nearS=last15.close<=e20+.3*a15&&last15.close>=e20-.8*a15&&last15.close<e50;
+  if(t4>0&&t1>0&&nearL)reasons.push('✓ 15m: giá đang ở vùng pullback hợp lý quanh EMA20');
+  else if(t4<0&&t1<0&&nearS)reasons.push('✓ 15m: giá đang ở vùng hồi hợp lý quanh EMA20');
+
+  let p=last15.close;
+  let rawSupports=[
+    buildSupport(H4,80,'4H',.40,'short'),
+    buildSupport(H1,100,'1H',.32,'short'),
+    buildSupport(C15,120,'15m',.25,'short'),
+    buildSupport(C5,150,'5m',.20,'short')
   ];
-
-  const WS_BASES = [
-    "wss://stream.binance.com:9443/ws",
-    "wss://stream.binance.com:443/ws"
+  let rawResistances=[
+    buildResistance(H4,80,'4H',.40,'short'),
+    buildResistance(H1,100,'1H',.32,'short'),
+    buildResistance(C15,120,'15m',.25,'short'),
+    buildResistance(C5,150,'5m',.20,'short')
   ];
+  let su=rankSupports(mergeZones(rawSupports,'short',.28),p).slice(0,4);
+  let re=rankRes(mergeZones(rawResistances,'short',.28),p).slice(0,4);
+  let ps=su.find(z=>z.mid<=p)||su[0],pr=re.find(z=>z.mid>=p)||re[0];
 
-  const SYMBOLS = [
-    "BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT",
-    "DOGEUSDT","ADAUSDT","AVAXUSDT","LINKUSDT","TRXUSDT",
-    "SUIUSDT","TONUSDT","LTCUSDT","BCHUSDT","DOTUSDT"
-  ];
+  // S/R quyết định vùng giao dịch; EMA20 15m chỉ dùng để thu hẹp timing bên trong vùng.
+  let nearSupport=!!ps&&p>=ps.low-.20*a4&&p<=ps.high+.45*a4;
+  let nearResistance=!!pr&&p<=pr.high+.20*a4&&p>=pr.low-.45*a4;
+  if(nearSupport)reasons.push(`✓ Giá đang gần vùng hỗ trợ ${fmt(ps.low)}–${fmt(ps.high)} [${ps.frames.join('+')}]`);
+  if(nearResistance)reasons.push(`✓ Giá đang gần vùng kháng cự ${fmt(pr.low)}–${fmt(pr.high)} [${pr.frames.join('+')}]`);
 
-  const MODES = {
-    short: {
-      label: "NGẮN HẠN",
-      timeframes: [
-        { interval: "4h", label: "4H", weight: 45, limit: 260 },
-        { interval: "1h", label: "1H", weight: 35, limit: 260 },
-        { interval: "15m", label: "15m", weight: 20, limit: 260 }
-      ],
-      signalThreshold: 62,
-      watchThreshold: 45,
-      pivotSpan: 2,
-      zonePct: 0.0025
-    },
-    swing: {
-      label: "DÀI HẠN",
-      timeframes: [
-        { interval: "1w", label: "1W", weight: 30, limit: 260 },
-        { interval: "1d", label: "1D", weight: 30, limit: 260 },
-        { interval: "12h", label: "12H", weight: 20, limit: 260 },
-        { interval: "4h", label: "4H", weight: 20, limit: 260 }
-      ],
-      signalThreshold: 58,
-      watchThreshold: 42,
-      pivotSpan: 2,
-      zonePct: 0.006
-    }
-  };
+  let conflict=t4&&t1&&t4!==t1,kind='WAIT';
+  if(conflict){reasons.unshift('⚠ 4H và 1H xung đột → ưu tiên WAIT.');}
+  else if(t4>0&&t1>0&&t15>0&&nearL&&nearSupport&&r15<72)kind='LONG';
+  else if(t4<0&&t1<0&&t15<0&&nearS&&nearResistance&&r15>28)kind='SHORT';
+  else if(score>=45&&t4>0&&t1>=0&&ps)kind='WATCH LONG';
+  else if(score<=-45&&t4<0&&t1<=0&&pr)kind='WATCH SHORT';
 
-  const state = {
-    symbol: localStorage.getItem("bsw.symbol") || "BTCUSDT",
-    mode: localStorage.getItem("bsw.mode") || "short",
-    analysisGeneration: 0,
-    fetchController: null,
-    websocket: null,
-    wsRetry: 0,
-    wsTimer: null,
-    lastAnalysis: null,
-    deferredInstallPrompt: null,
-    autoTimer: null
-  };
+  let out={kind,score,mode:'NGẮN HẠN',timeframes:`${tf('4H',t4)}   ${tf('1H',t1)}   ${tf('15m',t15)}`,reasons:reasons.slice(0,10),supports:su,resistances:re,primarySupport:ps,primaryResistance:pr,ref:last15.close};
 
-  const $ = (id) => document.getElementById(id);
-
-  const el = {
-    symbolSelect: $("symbolSelect"),
-    shortModeBtn: $("shortModeBtn"),
-    swingModeBtn: $("swingModeBtn"),
-    analyzeBtn: $("analyzeBtn"),
-    livePrice: $("livePrice"),
-    priceChange: $("priceChange"),
-    lastUpdated: $("lastUpdated"),
-    wsDot: $("wsDot"),
-    wsStatus: $("wsStatus"),
-    signalBadge: $("signalBadge"),
-    signalSummary: $("signalSummary"),
-    signalScore: $("signalScore"),
-    scoreMeter: $("scoreMeter"),
-    modeBadge: $("modeBadge"),
-    planDirection: $("planDirection"),
-    entryValue: $("entryValue"),
-    slValue: $("slValue"),
-    tp1Value: $("tp1Value"),
-    tp2Value: $("tp2Value"),
-    rrValue: $("rrValue"),
-    supportZones: $("supportZones"),
-    resistanceZones: $("resistanceZones"),
-    timeframeRows: $("timeframeRows"),
-    reasonList: $("reasonList"),
-    historyRows: $("historyRows"),
-    clearHistoryBtn: $("clearHistoryBtn"),
-    engineTitle: $("engineTitle"),
-    apiStatus: $("apiStatus"),
-    installBtn: $("installBtn"),
-    toast: $("toast")
-  };
-
-  function safeParse(value, fallback) {
-    try {
-      const parsed = JSON.parse(value);
-      return parsed ?? fallback;
-    } catch {
-      return fallback;
+  if(kind==='LONG'&&ps){
+    let timingLow=e20-.35*a15,timingHigh=e20+.35*a15;
+    let lo=Math.max(ps.low,timingLow),hi=Math.min(ps.high,timingHigh);
+    if(lo>hi){lo=ps.low;hi=ps.high}
+    let mid=(lo+hi)/2,sl=ps.low-.35*a4,risk=mid-sl;
+    let targets=re.filter(z=>z.low>mid).map(z=>z.low).sort((a,b)=>a-b);
+    let tp1=targets[0],tp2=targets[1],tp3=targets[2];
+    let rr1=risk>0&&tp1!=null?(tp1-mid)/risk:0;
+    if(risk<=0||tp1==null||rr1<1.5){
+      out.kind='WAIT';
+      out.hint=tp1==null?'WAIT - chưa có kháng cự phía trên đủ rõ để đặt TP1.':`WAIT - TP1 chỉ đạt khoảng ${rr1.toFixed(2)}R, thấp hơn mức tối thiểu 1.5R.`;
+      out.reasons.unshift(tp1==null?'⚠ Chưa xác định được TP1 từ vùng kháng cự phía trên.':`⚠ Risk/Reward tới TP1 = ${rr1.toFixed(2)}R < 1.5R → không vào LONG.`);
+    }else{
+      Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1,tp2,tp3,trigger:'Giá ở Support + 15m đóng xác nhận tăng (EMA20 / RSI / MACD).',invalid:`Setup LONG mất hiệu lực nếu giá phá xuống dưới khoảng ${fmt(sl)}.`,rr1});
+      out.reasons.unshift(`✓ LONG: Entry theo Support, SL dưới Support 0.35 ATR4H, TP1 tại Resistance gần nhất (${rr1.toFixed(2)}R).`);
     }
   }
 
-  function fmtNumber(n) {
-    if (!Number.isFinite(n)) return "—";
-    const abs = Math.abs(n);
-    let digits = 2;
-    if (abs >= 10000) digits = 2;
-    else if (abs >= 1000) digits = 2;
-    else if (abs >= 100) digits = 3;
-    else if (abs >= 1) digits = 4;
-    else digits = 6;
-    return new Intl.NumberFormat("en-US", {
-      maximumFractionDigits: digits,
-      minimumFractionDigits: 0
-    }).format(n);
-  }
-
-  function fmtPct(n) {
-    if (!Number.isFinite(n)) return "—";
-    return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
-  }
-
-  function nowLabel(ts = Date.now()) {
-    return new Intl.DateTimeFormat("vi-VN", {
-      hour: "2-digit", minute: "2-digit", second: "2-digit",
-      day: "2-digit", month: "2-digit"
-    }).format(new Date(ts));
-  }
-
-  function showToast(message) {
-    el.toast.textContent = message;
-    el.toast.classList.add("show");
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => el.toast.classList.remove("show"), 2600);
-  }
-
-  function setBusy(busy) {
-    el.analyzeBtn.disabled = busy;
-    el.analyzeBtn.textContent = busy ? "Đang phân tích..." : "Phân tích ngay";
-  }
-
-  function initSymbolSelect() {
-    el.symbolSelect.innerHTML = SYMBOLS
-      .map(s => `<option value="${s}">${s.replace("USDT", "/USDT")}</option>`)
-      .join("");
-    if (!SYMBOLS.includes(state.symbol)) state.symbol = "BTCUSDT";
-    el.symbolSelect.value = state.symbol;
-  }
-
-  function syncModeUI() {
-    const short = state.mode === "short";
-    el.shortModeBtn.classList.toggle("active", short);
-    el.swingModeBtn.classList.toggle("active", !short);
-    el.modeBadge.textContent = MODES[state.mode].label;
-    const spec = MODES[state.mode].timeframes;
-    el.engineTitle.textContent = spec.map(x => `${x.label} ${x.weight}%`).join(" · ");
-  }
-
-  async function fetchJson(path, { signal, timeoutMs = 10000 } = {}) {
-    let lastError = null;
-
-    for (const base of API_BASES) {
-      const timeoutController = new AbortController();
-      const timer = setTimeout(() => timeoutController.abort("timeout"), timeoutMs);
-      const combined = mergeSignals(signal, timeoutController.signal);
-
-      try {
-        const response = await fetch(`${base}${path}`, {
-          method: "GET",
-          cache: "no-store",
-          signal: combined
-        });
-
-        if (!response.ok) {
-          lastError = new Error(`${response.status} ${response.statusText}`);
-          if (response.status === 418 || response.status === 429) {
-            clearTimeout(timer);
-            continue;
-          }
-          throw lastError;
-        }
-
-        const data = await response.json();
-        clearTimeout(timer);
-        el.apiStatus.textContent = base.includes("vision") ? "DATA API" : "BINANCE API";
-        return data;
-      } catch (error) {
-        clearTimeout(timer);
-        if (signal?.aborted) throw error;
-        lastError = error;
-      }
-    }
-
-    throw lastError || new Error("Không thể kết nối Binance API.");
-  }
-
-  function mergeSignals(...signals) {
-    const controller = new AbortController();
-    for (const signal of signals.filter(Boolean)) {
-      if (signal.aborted) {
-        controller.abort(signal.reason);
-        break;
-      }
-      signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
-    }
-    return controller.signal;
-  }
-
-  async function fetchKlines(symbol, interval, limit, signal) {
-    const rows = await fetchJson(
-      `/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${limit}`,
-      { signal }
-    );
-
-    return rows.map(r => ({
-      openTime: Number(r[0]),
-      open: Number(r[1]),
-      high: Number(r[2]),
-      low: Number(r[3]),
-      close: Number(r[4]),
-      volume: Number(r[5]),
-      closeTime: Number(r[6])
-    })).filter(c =>
-      [c.open,c.high,c.low,c.close,c.volume].every(Number.isFinite)
-    );
-  }
-
-  function sma(values, period) {
-    if (values.length < period) return NaN;
-    let sum = 0;
-    for (let i = values.length - period; i < values.length; i++) sum += values[i];
-    return sum / period;
-  }
-
-  function emaSeries(values, period) {
-    if (!values.length) return [];
-    const k = 2 / (period + 1);
-    const out = new Array(values.length).fill(NaN);
-    if (values.length < period) return out;
-
-    let seed = 0;
-    for (let i = 0; i < period; i++) seed += values[i];
-    let prev = seed / period;
-    out[period - 1] = prev;
-
-    for (let i = period; i < values.length; i++) {
-      prev = values[i] * k + prev * (1 - k);
-      out[i] = prev;
-    }
-    return out;
-  }
-
-  function lastFinite(arr) {
-    for (let i = arr.length - 1; i >= 0; i--) {
-      if (Number.isFinite(arr[i])) return arr[i];
-    }
-    return NaN;
-  }
-
-  function rsi(values, period = 14) {
-    if (values.length <= period) return NaN;
-    let gains = 0, losses = 0;
-    for (let i = 1; i <= period; i++) {
-      const d = values[i] - values[i - 1];
-      if (d >= 0) gains += d;
-      else losses -= d;
-    }
-    let avgGain = gains / period;
-    let avgLoss = losses / period;
-
-    for (let i = period + 1; i < values.length; i++) {
-      const d = values[i] - values[i - 1];
-      const gain = d > 0 ? d : 0;
-      const loss = d < 0 ? -d : 0;
-      avgGain = ((avgGain * (period - 1)) + gain) / period;
-      avgLoss = ((avgLoss * (period - 1)) + loss) / period;
-    }
-
-    if (avgLoss === 0) return 100;
-    const rs = avgGain / avgLoss;
-    return 100 - (100 / (1 + rs));
-  }
-
-  function atr(candles, period = 14) {
-    if (candles.length <= period) return NaN;
-    const trs = [];
-    for (let i = 1; i < candles.length; i++) {
-      const prevClose = candles[i - 1].close;
-      const c = candles[i];
-      trs.push(Math.max(
-        c.high - c.low,
-        Math.abs(c.high - prevClose),
-        Math.abs(c.low - prevClose)
-      ));
-    }
-    if (trs.length < period) return NaN;
-
-    let value = trs.slice(0, period).reduce((a,b) => a + b, 0) / period;
-    for (let i = period; i < trs.length; i++) {
-      value = ((value * (period - 1)) + trs[i]) / period;
-    }
-    return value;
-  }
-
-  function macd(values) {
-    const fast = emaSeries(values, 12);
-    const slow = emaSeries(values, 26);
-    const line = values.map((_, i) =>
-      Number.isFinite(fast[i]) && Number.isFinite(slow[i]) ? fast[i] - slow[i] : NaN
-    );
-
-    const valid = line.filter(Number.isFinite);
-    const signalSeries = emaSeries(valid, 9);
-    const macdLine = lastFinite(line);
-    const signal = lastFinite(signalSeries);
-    return {
-      line: macdLine,
-      signal,
-      histogram: Number.isFinite(macdLine) && Number.isFinite(signal) ? macdLine - signal : NaN
-    };
-  }
-
-  function recentStructure(candles, span = 2) {
-    const pivH = [];
-    const pivL = [];
-    for (let i = span; i < candles.length - span; i++) {
-      let high = true, low = true;
-      for (let j = i - span; j <= i + span; j++) {
-        if (j === i) continue;
-        if (candles[j].high >= candles[i].high) high = false;
-        if (candles[j].low <= candles[i].low) low = false;
-      }
-      if (high) pivH.push(candles[i].high);
-      if (low) pivL.push(candles[i].low);
-    }
-
-    const lastH = pivH.slice(-2);
-    const lastL = pivL.slice(-2);
-    if (lastH.length < 2 || lastL.length < 2) return 0;
-    if (lastH[1] > lastH[0] && lastL[1] > lastL[0]) return 1;
-    if (lastH[1] < lastH[0] && lastL[1] < lastL[0]) return -1;
-    return 0;
-  }
-
-  function analyzeTimeframe(candles, spec) {
-    const closes = candles.map(c => c.close);
-    const close = closes.at(-1);
-    const ema20 = lastFinite(emaSeries(closes, 20));
-    const ema50 = lastFinite(emaSeries(closes, 50));
-    const ema200 = lastFinite(emaSeries(closes, 200));
-    const rsi14 = rsi(closes, 14);
-    const macdData = macd(closes);
-    const structure = recentStructure(candles.slice(-120), 2);
-    const atr14 = atr(candles, 14);
-
-    let bias = 0;
-    const reasons = [];
-
-    if (ema20 > ema50) { bias += 35; reasons.push("EMA20 > EMA50"); }
-    else if (ema20 < ema50) { bias -= 35; reasons.push("EMA20 < EMA50"); }
-
-    if (close > ema20) { bias += 15; reasons.push("Giá trên EMA20"); }
-    else if (close < ema20) { bias -= 15; reasons.push("Giá dưới EMA20"); }
-
-    if (ema50 > ema200) { bias += 20; reasons.push("EMA50 > EMA200"); }
-    else if (ema50 < ema200) { bias -= 20; reasons.push("EMA50 < EMA200"); }
-
-    if (macdData.histogram > 0) { bias += 15; reasons.push("MACD histogram dương"); }
-    else if (macdData.histogram < 0) { bias -= 15; reasons.push("MACD histogram âm"); }
-
-    if (rsi14 >= 55) { bias += 10; reasons.push("RSI thiên tăng"); }
-    else if (rsi14 <= 45) { bias -= 10; reasons.push("RSI thiên giảm"); }
-
-    if (structure > 0) { bias += 5; reasons.push("Cấu trúc HH/HL"); }
-    else if (structure < 0) { bias -= 5; reasons.push("Cấu trúc LH/LL"); }
-
-    bias = Math.max(-100, Math.min(100, bias));
-
-    return {
-      ...spec,
-      close, ema20, ema50, ema200, rsi14,
-      macdHistogram: macdData.histogram,
-      atr14, structure, bias, reasons
-    };
-  }
-
-  function findPivots(candles, span, timeframeWeight) {
-    const out = [];
-    for (let i = span; i < candles.length - span; i++) {
-      const c = candles[i];
-      let isHigh = true;
-      let isLow = true;
-      for (let j = i - span; j <= i + span; j++) {
-        if (j === i) continue;
-        if (candles[j].high >= c.high) isHigh = false;
-        if (candles[j].low <= c.low) isLow = false;
-      }
-      if (isHigh) out.push({ type: "resistance", price: c.high, time: c.closeTime, weight: timeframeWeight });
-      if (isLow) out.push({ type: "support", price: c.low, time: c.closeTime, weight: timeframeWeight });
-    }
-    return out;
-  }
-
-  function buildZones(allData, currentPrice, mode) {
-    const cfg = MODES[mode];
-    const points = [];
-    let anchorAtr = NaN;
-
-    for (const item of allData) {
-      const pivots = findPivots(item.candles.slice(-140), cfg.pivotSpan, item.spec.weight);
-      points.push(...pivots);
-      if (!Number.isFinite(anchorAtr) && Number.isFinite(item.analysis.atr14)) anchorAtr = item.analysis.atr14;
-    }
-
-    const threshold = Math.max(
-      currentPrice * cfg.zonePct,
-      Number.isFinite(anchorAtr) ? anchorAtr * (mode === "short" ? 0.30 : 0.45) : 0
-    );
-
-    function cluster(type) {
-      const filtered = points
-        .filter(p => p.type === type)
-        .sort((a,b) => a.price - b.price);
-
-      const clusters = [];
-      for (const p of filtered) {
-        let best = null;
-        let bestDist = Infinity;
-        for (const c of clusters) {
-          const dist = Math.abs(c.center - p.price);
-          if (dist <= threshold && dist < bestDist) {
-            best = c;
-            bestDist = dist;
-          }
-        }
-        if (!best) {
-          clusters.push({ center: p.price, points: [p] });
-        } else {
-          best.points.push(p);
-          best.center = best.points.reduce((s,x) => s + x.price * x.weight, 0) /
-                        best.points.reduce((s,x) => s + x.weight, 0);
-        }
-      }
-
-      return clusters.map(c => {
-        const prices = c.points.map(x => x.price);
-        const tfWeight = c.points.reduce((s,x) => s + x.weight, 0);
-        const latest = Math.max(...c.points.map(x => x.time));
-        const ageDays = Math.max(0, (Date.now() - latest) / 86400000);
-        const recency = Math.max(0.35, 1 - Math.min(ageDays, 120) / 150);
-        const strengthScore = c.points.length * 1.6 + (tfWeight / 30) * 0.85 * recency;
-        const pad = threshold * 0.18;
-        return {
-          type,
-          center: c.center,
-          low: Math.min(...prices) - pad,
-          high: Math.max(...prices) + pad,
-          touches: c.points.length,
-          strengthScore,
-          label: strengthScore >= 8.5 ? "VERY STRONG" : strengthScore >= 5.2 ? "STRONG" : "NORMAL"
-        };
-      });
-    }
-
-    const supports = cluster("support")
-      .filter(z => z.center < currentPrice * 1.002)
-      .sort((a,b) => b.center - a.center)
-      .slice(0, 4);
-
-    const resistances = cluster("resistance")
-      .filter(z => z.center > currentPrice * 0.998)
-      .sort((a,b) => a.center - b.center)
-      .slice(0, 4);
-
-    return { supports, resistances };
-  }
-
-  function distancePct(a, b) {
-    if (!Number.isFinite(a) || !Number.isFinite(b) || b === 0) return Infinity;
-    return Math.abs(a - b) / Math.abs(b);
-  }
-
-  function decideSignal(tfAnalyses, zones, currentPrice, mode) {
-    const cfg = MODES[mode];
-    const weightedBias = tfAnalyses.reduce((sum, t) => sum + t.bias * (t.weight / 100), 0);
-    const score = Math.round(Math.abs(weightedBias));
-    const direction = weightedBias > 0 ? "LONG" : weightedBias < 0 ? "SHORT" : "WAIT";
-    const reasons = [];
-
-    const majorA = tfAnalyses[0];
-    const majorB = tfAnalyses[1];
-    const trigger = tfAnalyses.at(-1);
-
-    const support = zones.supports[0];
-    const resistance = zones.resistances[0];
-
-    const nearSupport = support ? distancePct(currentPrice, support.center) <= (mode === "short" ? 0.012 : 0.035) : false;
-    const nearResistance = resistance ? distancePct(currentPrice, resistance.center) <= (mode === "short" ? 0.012 : 0.035) : false;
-
-    const majorLong = majorA.bias > 10 && majorB.bias > 10;
-    const majorShort = majorA.bias < -10 && majorB.bias < -10;
-
-    let kind = "WAIT";
-
-    if (weightedBias >= cfg.signalThreshold && majorLong && trigger.bias > 5 && trigger.rsi14 < 72) {
-      kind = nearSupport || mode === "swing" ? "LONG" : "WATCH LONG";
-    } else if (weightedBias <= -cfg.signalThreshold && majorShort && trigger.bias < -5 && trigger.rsi14 > 28) {
-      kind = nearResistance || mode === "swing" ? "SHORT" : "WATCH SHORT";
-    } else if (weightedBias >= cfg.watchThreshold) {
-      kind = "WATCH LONG";
-    } else if (weightedBias <= -cfg.watchThreshold) {
-      kind = "WATCH SHORT";
-    }
-
-    reasons.push(`Bias tổng hợp: ${weightedBias >= 0 ? "+" : ""}${weightedBias.toFixed(1)} / 100.`);
-    reasons.push(`${majorA.label}: ${biasLabel(majorA.bias)} (${majorA.bias}).`);
-    reasons.push(`${majorB.label}: ${biasLabel(majorB.bias)} (${majorB.bias}).`);
-    reasons.push(`${trigger.label}: ${biasLabel(trigger.bias)} (${trigger.bias}), RSI ${trigger.rsi14.toFixed(1)}.`);
-
-    if (support) reasons.push(`Support gần nhất: ${fmtNumber(support.low)} – ${fmtNumber(support.high)} (${support.label}).`);
-    if (resistance) reasons.push(`Resistance gần nhất: ${fmtNumber(resistance.low)} – ${fmtNumber(resistance.high)} (${resistance.label}).`);
-
-    if (kind === "WATCH LONG" && !nearSupport) reasons.push("Xu hướng thiên tăng nhưng giá chưa ở vùng support đủ gần.");
-    if (kind === "WATCH SHORT" && !nearResistance) reasons.push("Xu hướng thiên giảm nhưng giá chưa ở vùng resistance đủ gần.");
-    if (kind === "WAIT") reasons.push("Các khung thời gian chưa tạo đủ đồng thuận để hình thành setup.");
-
-    return { kind, score, weightedBias, reasons, support, resistance, direction };
-  }
-
-  function buildTradePlan(signal, tfAnalyses, zones, currentPrice) {
-    const longLike = signal.kind.includes("LONG");
-    const shortLike = signal.kind.includes("SHORT");
-    if (!longLike && !shortLike) return null;
-
-    const atrRef = tfAnalyses.at(-1).atr14 || currentPrice * 0.01;
-    let entryLow, entryHigh, sl, tp1, tp2;
-
-    if (longLike) {
-      const support = zones.supports[0];
-      entryLow = support ? Math.max(support.low, currentPrice - atrRef * 0.45) : currentPrice - atrRef * 0.25;
-      entryHigh = currentPrice + atrRef * 0.08;
-      const entryMid = (entryLow + entryHigh) / 2;
-      sl = support ? Math.min(support.low - atrRef * 0.32, entryMid - atrRef * 0.9) : entryMid - atrRef * 1.25;
-      const risk = Math.max(entryMid - sl, atrRef * 0.35);
-      const validRes = zones.resistances.filter(z => z.center > entryMid + risk * 1.15);
-      tp1 = validRes[0]?.center || entryMid + risk * 1.5;
-      tp2 = validRes[1]?.center || Math.max(entryMid + risk * 2.4, tp1 + risk * 0.7);
-      return makePlan("LONG", entryLow, entryHigh, sl, tp1, tp2);
-    }
-
-    const resistance = zones.resistances[0];
-    entryLow = currentPrice - atrRef * 0.08;
-    entryHigh = resistance ? Math.min(resistance.high, currentPrice + atrRef * 0.45) : currentPrice + atrRef * 0.25;
-    const entryMid = (entryLow + entryHigh) / 2;
-    sl = resistance ? Math.max(resistance.high + atrRef * 0.32, entryMid + atrRef * 0.9) : entryMid + atrRef * 1.25;
-    const risk = Math.max(sl - entryMid, atrRef * 0.35);
-    const validSup = zones.supports.filter(z => z.center < entryMid - risk * 1.15);
-    tp1 = validSup[0]?.center || entryMid - risk * 1.5;
-    tp2 = validSup[1]?.center || Math.min(entryMid - risk * 2.4, tp1 - risk * 0.7);
-    return makePlan("SHORT", entryLow, entryHigh, sl, tp1, tp2);
-  }
-
-  function makePlan(direction, entryLow, entryHigh, sl, tp1, tp2) {
-    const mid = (entryLow + entryHigh) / 2;
-    const risk = direction === "LONG" ? mid - sl : sl - mid;
-    const reward1 = direction === "LONG" ? tp1 - mid : mid - tp1;
-    const reward2 = direction === "LONG" ? tp2 - mid : mid - tp2;
-    return {
-      direction, entryLow, entryHigh, sl, tp1, tp2,
-      rr1: risk > 0 ? reward1 / risk : NaN,
-      rr2: risk > 0 ? reward2 / risk : NaN
-    };
-  }
-
-  function biasLabel(bias) {
-    if (bias >= 25) return "BULLISH";
-    if (bias <= -25) return "BEARISH";
-    return "NEUTRAL";
-  }
-
-  function signalCss(kind) {
-    if (kind === "LONG") return "long";
-    if (kind === "SHORT") return "short";
-    if (kind.startsWith("WATCH")) return "watch";
-    return "wait";
-  }
-
-  function renderAnalysis(result) {
-    state.lastAnalysis = result;
-    el.lastUpdated.textContent = nowLabel(result.timestamp);
-
-    el.signalBadge.className = `signal-badge ${signalCss(result.signal.kind)}`;
-    el.signalBadge.textContent = result.signal.kind;
-    el.signalScore.textContent = `${result.signal.score}/100`;
-    el.scoreMeter.style.width = `${Math.min(100, result.signal.score)}%`;
-
-    const summaryMap = {
-      LONG: "Xu hướng đa khung đang đồng thuận tăng và setup đã đạt điều kiện kích hoạt.",
-      SHORT: "Xu hướng đa khung đang đồng thuận giảm và setup đã đạt điều kiện kích hoạt.",
-      "WATCH LONG": "Thiên hướng tăng, nhưng chưa đủ điều kiện để nâng thành LONG.",
-      "WATCH SHORT": "Thiên hướng giảm, nhưng chưa đủ điều kiện để nâng thành SHORT.",
-      WAIT: "Chưa có sự đồng thuận đủ rõ giữa các khung thời gian."
-    };
-    el.signalSummary.textContent = summaryMap[result.signal.kind] || summaryMap.WAIT;
-
-    renderPlan(result.plan);
-    renderZones(el.supportZones, result.zones.supports);
-    renderZones(el.resistanceZones, result.zones.resistances);
-    renderTimeframes(result.timeframes);
-    renderReasons(result.signal.reasons);
-    saveHistory(result);
-    renderHistory();
-  }
-
-  function renderPlan(plan) {
-    if (!plan) {
-      el.planDirection.textContent = "—";
-      el.entryValue.textContent = el.slValue.textContent = el.tp1Value.textContent = el.tp2Value.textContent = "—";
-      el.rrValue.textContent = "R:R —";
-      return;
-    }
-    el.planDirection.textContent = plan.direction;
-    el.entryValue.textContent = `${fmtNumber(plan.entryLow)} – ${fmtNumber(plan.entryHigh)}`;
-    el.slValue.textContent = fmtNumber(plan.sl);
-    el.tp1Value.textContent = fmtNumber(plan.tp1);
-    el.tp2Value.textContent = fmtNumber(plan.tp2);
-    el.rrValue.textContent = `R:R TP1 ≈ ${Number.isFinite(plan.rr1) ? plan.rr1.toFixed(2) : "—"} · TP2 ≈ ${Number.isFinite(plan.rr2) ? plan.rr2.toFixed(2) : "—"}`;
-  }
-
-  function renderZones(container, zones) {
-    if (!zones.length) {
-      container.className = "zone-list empty-state";
-      container.textContent = "Không tìm thấy vùng phù hợp gần giá hiện tại.";
-      return;
-    }
-    container.className = "zone-list";
-    container.innerHTML = zones.map(z => {
-      const cls = z.label === "VERY STRONG" ? "very" : z.label === "STRONG" ? "strong" : "";
-      return `<div class="zone-item">
-        <div>
-          <div class="zone-price">${fmtNumber(z.low)} – ${fmtNumber(z.high)}</div>
-          <div class="zone-meta">${z.touches} pivot trong cụm · trung tâm ${fmtNumber(z.center)}</div>
-        </div>
-        <div class="zone-strength ${cls}">${z.label}</div>
-      </div>`;
-    }).join("");
-  }
-
-  function renderTimeframes(rows) {
-    el.timeframeRows.innerHTML = rows.map(t => {
-      const label = biasLabel(t.bias);
-      const cls = label === "BULLISH" ? "bias-bull" : label === "BEARISH" ? "bias-bear" : "bias-neutral";
-      return `<tr>
-        <td><strong>${t.label}</strong></td>
-        <td>${t.weight}%</td>
-        <td class="${cls}">${label}</td>
-        <td class="${cls}">${t.bias >= 0 ? "+" : ""}${t.bias}</td>
-        <td>${fmtNumber(t.rsi14)}</td>
-        <td>${fmtNumber(t.ema20)}</td>
-        <td>${fmtNumber(t.ema50)}</td>
-        <td>${fmtNumber(t.ema200)}</td>
-        <td>${fmtNumber(t.macdHistogram)}</td>
-      </tr>`;
-    }).join("");
-  }
-
-  function renderReasons(reasons) {
-    el.reasonList.innerHTML = reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("");
-  }
-
-  function escapeHtml(value) {
-    return String(value)
-      .replaceAll("&","&amp;")
-      .replaceAll("<","&lt;")
-      .replaceAll(">","&gt;")
-      .replaceAll('"',"&quot;")
-      .replaceAll("'","&#039;");
-  }
-
-  async function analyzeSelected() {
-    const generation = ++state.analysisGeneration;
-    state.fetchController?.abort("superseded");
-    const controller = new AbortController();
-    state.fetchController = controller;
-
-    const symbol = state.symbol;
-    const mode = state.mode;
-    const cfg = MODES[mode];
-
-    setBusy(true);
-    try {
-      const datasets = await Promise.all(cfg.timeframes.map(async spec => {
-        const candles = await fetchKlines(symbol, spec.interval, spec.limit, controller.signal);
-        if (candles.length < 210) throw new Error(`${spec.label}: không đủ dữ liệu.`);
-        return { spec, candles, analysis: analyzeTimeframe(candles, spec) };
-      }));
-
-      if (generation !== state.analysisGeneration || symbol !== state.symbol || mode !== state.mode) return;
-
-      const currentPrice = datasets.at(-1).candles.at(-1).close;
-      const timeframes = datasets.map(x => x.analysis);
-      const zones = buildZones(datasets, currentPrice, mode);
-      const signal = decideSignal(timeframes, zones, currentPrice, mode);
-      const plan = buildTradePlan(signal, timeframes, zones, currentPrice);
-
-      renderAnalysis({
-        symbol, mode, currentPrice, timeframes, zones, signal, plan,
-        timestamp: Date.now()
-      });
-
-      if (el.livePrice.textContent === "—") el.livePrice.textContent = fmtNumber(currentPrice);
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      console.error(error);
-      showToast(`Lỗi phân tích: ${error.message || error}`);
-      el.apiStatus.textContent = "API ERROR";
-    } finally {
-      if (generation === state.analysisGeneration) setBusy(false);
+  if(kind==='SHORT'&&pr){
+    let timingLow=e20-.35*a15,timingHigh=e20+.35*a15;
+    let lo=Math.max(pr.low,timingLow),hi=Math.min(pr.high,timingHigh);
+    if(lo>hi){lo=pr.low;hi=pr.high}
+    let mid=(lo+hi)/2,sl=pr.high+.35*a4,risk=sl-mid;
+    let targets=su.filter(z=>z.high<mid).map(z=>z.high).sort((a,b)=>b-a);
+    let tp1=targets[0],tp2=targets[1],tp3=targets[2];
+    let rr1=risk>0&&tp1!=null?(mid-tp1)/risk:0;
+    if(risk<=0||tp1==null||rr1<1.5){
+      out.kind='WAIT';
+      out.hint=tp1==null?'WAIT - chưa có hỗ trợ phía dưới đủ rõ để đặt TP1.':`WAIT - TP1 chỉ đạt khoảng ${rr1.toFixed(2)}R, thấp hơn mức tối thiểu 1.5R.`;
+      out.reasons.unshift(tp1==null?'⚠ Chưa xác định được TP1 từ vùng hỗ trợ phía dưới.':`⚠ Risk/Reward tới TP1 = ${rr1.toFixed(2)}R < 1.5R → không vào SHORT.`);
+    }else{
+      Object.assign(out,{entryLow:lo,entryHigh:hi,sl,tp1,tp2,tp3,trigger:'Giá ở Resistance + 15m đóng xác nhận giảm (EMA20 / RSI / MACD).',invalid:`Setup SHORT mất hiệu lực nếu giá phá lên trên khoảng ${fmt(sl)}.`,rr1});
+      out.reasons.unshift(`✓ SHORT: Entry theo Resistance, SL trên Resistance 0.35 ATR4H, TP1 tại Support gần nhất (${rr1.toFixed(2)}R).`);
     }
   }
 
-  function historyKey() { return "bsw.history.v1"; }
-  function getHistory() { return safeParse(localStorage.getItem(historyKey()), []); }
-
-  function saveHistory(result) {
-    const history = getHistory();
-    history.unshift({
-      timestamp: result.timestamp,
-      symbol: result.symbol,
-      mode: result.mode,
-      kind: result.signal.kind,
-      score: result.signal.score,
-      price: result.currentPrice
-    });
-    localStorage.setItem(historyKey(), JSON.stringify(history.slice(0, 50)));
+  if(out.kind==='WATCH LONG'&&ps){
+    out.watchLow=ps.low;out.watchHigh=ps.high;
+    out.invalid=`Vùng canh yếu đi nếu giá phá xuống dưới khoảng ${fmt(ps.low-.35*a4)}.`;
+    out.hint=`CANH LONG vùng Support ${fmt(ps.low)} – ${fmt(ps.high)} [${ps.frames.join('+')}]. Chờ 15m xác nhận tăng trước khi vào.`;
+    if(pr)out.breakout=`Breakout thay thế: chờ 15m đóng trên ${fmt(pr.high)}, sau đó retest và giữ vùng vừa phá.`;
+  }else if(out.kind==='WATCH SHORT'&&pr){
+    out.watchLow=pr.low;out.watchHigh=pr.high;
+    out.invalid=`Vùng canh yếu đi nếu giá phá lên trên khoảng ${fmt(pr.high+.35*a4)}.`;
+    out.hint=`CANH SHORT vùng Resistance ${fmt(pr.low)} – ${fmt(pr.high)} [${pr.frames.join('+')}]. Chờ 15m xác nhận giảm trước khi vào.`;
+    if(ps)out.breakout=`Breakdown thay thế: chờ 15m đóng dưới ${fmt(ps.low)}, sau đó retest và giữ vùng vừa phá.`;
+  }else if(out.kind==='WAIT'){
+    if(!out.hint){let nextR=(re||[]).find(z=>z!==pr),nextS=(su||[]).find(z=>z!==ps);out.hint=ps&&pr?`WAIT - hỗ trợ gần ${fmt(ps.low)}–${fmt(ps.high)} [${ps.frames.join('+')}] • kháng cự gần ${fmt(pr.low)}–${fmt(pr.high)} [${pr.frames.join('+')}]${nextR?` • kháng cự kế tiếp ${fmt(nextR.low)}–${fmt(nextR.high)} [${nextR.frames.join('+')}]`:''}${nextS?` • hỗ trợ kế tiếp ${fmt(nextS.low)}–${fmt(nextS.high)} [${nextS.frames.join('+')}]`:''}.`:'WAIT - chưa có setup ngắn hạn rõ.';}
+  }else{
+    out.hint=`${out.kind}: Entry ${fmt(out.entryLow)} – ${fmt(out.entryHigh)} | SL ${fmt(out.sl)} | TP1 ${fmt(out.tp1)}${out.rr1?` | RR ${out.rr1.toFixed(2)}R`:''}`;
   }
+  return out;
+}
 
-  function renderHistory() {
-    const history = getHistory();
-    if (!history.length) {
-      el.historyRows.innerHTML = `<tr><td colspan="6" class="empty-cell">Chưa có lịch sử.</td></tr>`;
-      return;
+function basicWait(mode,msg){return{kind:'WAIT',score:0,mode,timeframes:'--',reasons:[msg],supports:[],resistances:[],hint:'WAIT - đang chờ đủ dữ liệu.'}}
+
+async function apiFetch(path){let last;for(let base of API_BASES){try{let r=await fetch(base+path,{cache:'no-store'});if(!r.ok)throw new Error(`${r.status}`);return await r.json()}catch(e){last=e}}throw last||new Error('Không kết nối được Binance')}
+async function getKlines(symbol,interval,limit=260){let rows=await apiFetch(`/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`);return rows.map(r=>({openTime:+r[0],open:+r[1],high:+r[2],low:+r[3],close:+r[4],volume:+r[5],closeTime:+r[6]}))}
+
+function mergeLiveCandle(interval,candles){
+  let live=state.liveKlines?.[interval]; if(!live)return candles;
+  let out=[...(candles||[])], last=out.at(-1);
+  if(last&&last.openTime===live.openTime) out[out.length-1]=live;
+  else if(!last||live.openTime>last.openTime) out.push(live);
+  return out.slice(-300);
+}
+function applyLiveKline(interval,candle){
+  state.liveKlines[interval]=candle;
+  let arr=state.candles?.[interval];
+  if(arr?.length){
+    let last=arr.at(-1);
+    if(last.openTime===candle.openTime) arr[arr.length-1]=candle;
+    else if(candle.openTime>last.openTime) arr.push(candle);
+    if(arr.length>300)arr.splice(0,arr.length-300);
+  }
+  if(interval===state.chartTf&&state.candles?.[interval]) drawChart(state.candles[interval],state.analysis||{});
+}
+function connectKlines(){
+  if(state.klineReconnectTimer){clearTimeout(state.klineReconnectTimer);state.klineReconnectTimer=null}
+  if(state.klineWs){try{state.klineWs.onclose=null;state.klineWs.close()}catch{}state.klineWs=null}
+  let symbol=(state.selected||'').toLowerCase(); if(!symbol)return;
+  let streams=CHART_TIMEFRAMES.map(tf=>`${symbol}@kline_${tf}`).join('/');
+  let ws=new WebSocket(WS_BASE+streams); state.klineWs=ws;
+  ws.onmessage=e=>{try{
+    let payload=JSON.parse(e.data),d=payload.data||payload,k=d.k;if(!k||d.s!==state.selected)return;
+    let candle={openTime:+k.t,open:+k.o,high:+k.h,low:+k.l,close:+k.c,volume:+k.v,closeTime:+k.T};
+    applyLiveKline(k.i,candle);
+    if(k.i===state.chartTf){
+      let t=state.tickers.get(state.selected)||{};state.tickers.set(state.selected,{price:candle.close,change:t.change||0});renderSelectedTicker();
     }
-    el.historyRows.innerHTML = history.slice(0, 15).map(h => `
-      <tr>
-        <td>${nowLabel(h.timestamp)}</td>
-        <td>${escapeHtml(h.symbol)}</td>
-        <td>${h.mode === "short" ? "Ngắn hạn" : "Dài hạn"}</td>
-        <td class="${signalCss(h.kind) === "long" ? "bias-bull" : signalCss(h.kind) === "short" ? "bias-bear" : "bias-neutral"}">${escapeHtml(h.kind)}</td>
-        <td>${h.score}/100</td>
-        <td>${fmtNumber(h.price)}</td>
-      </tr>`).join("");
-  }
-
-  function disconnectWebSocket() {
-    clearTimeout(state.wsTimer);
-    if (state.websocket) {
-      try {
-        state.websocket.onclose = null;
-        state.websocket.close();
-      } catch {}
+    if(k.x&&(ANALYSIS_TIMEFRAMES[state.mode]||[]).includes(k.i)){
+      clearTimeout(connectKlines._analysisTimer);connectKlines._analysisTimer=setTimeout(()=>analyzeSelected(),450);
     }
-    state.websocket = null;
-  }
+  }catch{}};
+  ws.onclose=()=>{if(state.klineWs===ws){state.klineReconnectTimer=setTimeout(connectKlines,1800)}};
+  ws.onerror=()=>{};
+}
+async function validateSymbol(s){let j=await apiFetch(`/api/v3/ticker/24hr?symbol=${encodeURIComponent(s)}`);return{symbol:s,price:+j.lastPrice,change:+j.priceChangePercent}}
 
-  function connectWebSocket() {
-    disconnectWebSocket();
-    const symbolAtConnect = state.symbol.toLowerCase();
-    const base = WS_BASES[state.wsRetry % WS_BASES.length];
-    const url = `${base}/${symbolAtConnect}@ticker`;
-
-    el.wsDot.className = "status-dot";
-    el.wsStatus.textContent = "Đang kết nối giá...";
-
-    let ws;
-    try {
-      ws = new WebSocket(url);
-    } catch {
-      scheduleWsReconnect();
-      return;
+function connectTicker(){
+  if(state.ws){try{state.ws.close()}catch{}}
+  if(!state.symbols.length)return;let streams=state.symbols.map(s=>`${s.toLowerCase()}@miniTicker`).join('/');
+  let ws=new WebSocket(WS_BASE+streams);state.ws=ws;setConn('connecting');
+  ws.onopen=()=>setConn('online');ws.onmessage=e=>{try{let d=JSON.parse(e.data).data,s=d.s,p=+d.c,o=+d.o,ch=o?((p-o)/o*100):0;state.tickers.set(s,{price:p,change:ch});renderWatchlist();if(s===state.selected)renderSelectedTicker()}catch{}};
+  ws.onerror=()=>setConn('offline');ws.onclose=()=>{setConn('offline');setTimeout(()=>{if(state.ws===ws)connectTicker()},2500)};
+}
+function setConn(s){els.conn.classList.toggle('online',s==='online');els.conn.classList.toggle('offline',s==='offline');els.conn.querySelector('span:last-child').textContent=s==='online'?'Realtime':s==='connecting'?'Đang kết nối':'Mất kết nối'}
+function renderWatchlist(){
+  els.count.textContent=`${state.symbols.length} cặp`;let syms=[...state.symbols].sort((a,b)=>(state.favorites.has(b)-state.favorites.has(a))||a.localeCompare(b));
+  els.watch.innerHTML=syms.map(s=>{let t=state.tickers.get(s),active=s===state.selected?' active':'',fav=state.favorites.has(s)?' on':'';return `<div class="watch-item${active}" data-symbol="${s}"><button class="star${fav}" data-star="${s}" aria-label="Yêu thích">★</button><div><div class="wi-symbol">${s.replace('USDT','/USDT')}</div><div class="wi-change ${t&&t.change>=0?'up':'down'}">${t?pct(t.change):'--'}</div></div><div class="wi-price">${t?fmt(t.price):'--'}</div><button class="delete-coin" data-delete="${s}" aria-label="Xóa ${s}" title="Xóa coin">×</button></div>`}).join('');
+  els.watch.querySelectorAll('[data-symbol]').forEach(x=>x.addEventListener('click',e=>{if(e.target.closest('[data-star],[data-delete]'))return;selectSymbol(x.dataset.symbol)}));
+  els.watch.querySelectorAll('[data-star]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();let s=b.dataset.star;state.favorites.has(s)?state.favorites.delete(s):state.favorites.add(s);persist();renderWatchlist()}));
+  els.watch.querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();removeSymbol(b.dataset.delete)}));
+}
+function renderSelectedTicker(){let t=state.tickers.get(state.selected);els.symbol.textContent=state.selected;els.price.textContent=t?fmt(t.price):'--';els.change.textContent=t?pct(t.change):'--';els.change.className='change '+(t&&t.change>=0?'up':'down')}
+function signalClass(k){return k==='LONG'?'long':k==='SHORT'?'short':k.startsWith('WATCH')?'watch':'wait'}
+function renderAnalysis(a){
+  state.analysis=a;els.mode.textContent=a.mode;els.badge.textContent=a.kind;els.badge.className=`signal ${signalClass(a.kind)}`;els.score.textContent=`Score ${a.score>=0?'+':''}${a.score}`;els.tf.textContent=a.timeframes;els.hint.textContent=a.hint||'--';els.updated.textContent=new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
+  els.entry.textContent=a.entryLow!=null?`${fmt(a.entryLow)} – ${fmt(a.entryHigh)}`:(a.watchLow!=null?`Canh ${fmt(a.watchLow)} – ${fmt(a.watchHigh)}`:'--');els.sl.textContent=fmt(a.sl);els.tp1.textContent=fmt(a.tp1);els.tp2.textContent=fmt(a.tp2);els.tp3.textContent=fmt(a.tp3);els.invalid.textContent=a.invalid||'--';els.trigger.textContent=a.trigger||'';els.breakout.textContent=a.breakout||'';
+  els.supports.innerHTML=(a.supports||[]).map(z=>`<div class="level"><strong>${fmt(z.low)} – ${fmt(z.high)}</strong><small>${z.frames.join('+')} • ${z.strength}</small></div>`).join('')||'<div class="muted">--</div>';
+  els.resistances.innerHTML=(a.resistances||[]).map(z=>`<div class="level"><strong>${fmt(z.low)} – ${fmt(z.high)}</strong><small>${z.frames.join('+')} • ${z.strength}</small></div>`).join('')||'<div class="muted">--</div>';
+  els.reasons.innerHTML=(a.reasons||[]).map(r=>`<div class="reason">${escapeHtml(r)}</div>`).join('');
+}
+function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function updateTimeframeButtons(){
+  els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.classList.toggle('active',b.dataset.tf===state.chartTf));
+}
+function chartTfLabel(tf){return tf==='1M'?'1M':tf}
+async function setChartTimeframe(tf){
+  if(!CHART_TIMEFRAMES.includes(tf))return;
+  state.chartTf=tf;persist();updateTimeframeButtons();
+  els.chartTitle.textContent=`${state.selected} • ${chartTfLabel(tf)}`;
+  try{
+    let candles=state.candles?.[tf];
+    if(!candles){
+      els.updated.textContent='Đang tải...';
+      candles=mergeLiveCandle(tf,await getKlines(state.selected,tf,260));
+      if(!state.candles||Array.isArray(state.candles))state.candles={};
+      state.candles[tf]=candles;
     }
-    state.websocket = ws;
-
-    ws.onopen = () => {
-      state.wsRetry = 0;
-      el.wsDot.className = "status-dot online";
-      el.wsStatus.textContent = "Realtime";
-    };
-
-    ws.onmessage = (event) => {
-      if (state.symbol.toLowerCase() !== symbolAtConnect) return;
-      try {
-        const msg = JSON.parse(event.data);
-        const price = Number(msg.c);
-        const change = Number(msg.P);
-        if (Number.isFinite(price)) el.livePrice.textContent = fmtNumber(price);
-        if (Number.isFinite(change)) {
-          el.priceChange.textContent = fmtPct(change);
-          el.priceChange.style.color = change >= 0 ? "var(--green)" : "var(--red)";
-        }
-      } catch {}
-    };
-
-    ws.onerror = () => {
-      try { ws.close(); } catch {}
-    };
-
-    ws.onclose = () => {
-      if (state.websocket !== ws) return;
-      el.wsDot.className = "status-dot offline";
-      el.wsStatus.textContent = "Mất kết nối";
-      scheduleWsReconnect();
-    };
+    drawChart(candles,state.analysis||{});
+    els.updated.textContent=new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
+  }catch(e){
+    els.updated.textContent='Lỗi tải biểu đồ';
   }
+}
+async function analyzeSelected(){
+  renderSelectedTicker();els.hint.textContent='Đang tải dữ liệu Binance và phân tích...';els.refresh.disabled=true;
+  try{
+    let analysisIntervals=ANALYSIS_TIMEFRAMES[state.mode]||ANALYSIS_TIMEFRAMES.short;
+    let intervals=[...new Set([...analysisIntervals,state.chartTf])];
+    let data={};await Promise.all(intervals.map(async i=>{data[i]=mergeLiveCandle(i,await getKlines(state.selected,i,260))}));state.candles=data;
+    let a=state.mode==='swing'?analyzeSwing(data):analyzeShort(data);renderAnalysis(a);updateTimeframeButtons();els.chartTitle.textContent=`${state.selected} • ${chartTfLabel(state.chartTf)}`;drawChart(data[state.chartTf],a);
+  }catch(e){renderAnalysis(basicWait(state.mode==='swing'?'DÀI HẠN':'NGẮN HẠN',`Không tải được Binance: ${e.message||e}`));}
+  finally{els.refresh.disabled=false}
+}
+function drawChart(candles,a){
+  const cvs=els.canvas,ctx=cvs.getContext('2d');let dpr=window.devicePixelRatio||1,w=cvs.clientWidth,h=cvs.clientHeight;cvs.width=Math.floor(w*dpr);cvs.height=Math.floor(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);ctx.fillStyle='#060a0f';ctx.fillRect(0,0,w,h);
+  if(!candles?.length)return;
+  let visible=w<420?42:w<900?52:58;
+  let data=candles.slice(-visible);if(!data.length)return;
+  let lo=Math.min(...data.map(x=>x.low)),hi=Math.max(...data.map(x=>x.high));let extra=(hi-lo)*.12||1;lo-=extra;hi+=extra;
+  let pad={l:10,r:68,t:12,b:18},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,xstep=cw/data.length,scaleY=v=>pad.t+(hi-v)/(hi-lo)*ch;
+  ctx.strokeStyle='#25364a';ctx.lineWidth=1.1;for(let i=0;i<5;i++){let y=pad.t+i*ch/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();let val=hi-(hi-lo)*i/4;ctx.fillStyle='#c8d4e4';ctx.font='11px -apple-system,BlinkMacSystemFont,sans-serif';ctx.fillText(fmt(val),w-pad.r+5,y+4)}
+  function band(z,fill,stroke){if(!z)return;let y1=scaleY(z.high),y2=scaleY(z.low),bh=Math.max(3,y2-y1);ctx.fillStyle=fill;ctx.fillRect(pad.l,y1,cw,bh);ctx.strokeStyle=stroke;ctx.lineWidth=1.35;ctx.strokeRect(pad.l+.5,y1+.5,cw-1,Math.max(1,bh-1));ctx.beginPath();ctx.moveTo(pad.l,y1);ctx.lineTo(pad.l+cw,y1);ctx.moveTo(pad.l,y2);ctx.lineTo(pad.l+cw,y2);ctx.stroke()}
+  let supportZones=(a.supports||[]).slice(0,2), resistanceZones=(a.resistances||[]).slice(0,2);
+  supportZones.forEach((z,i)=>band(z,i===0?'rgba(0,255,163,.18)':'rgba(0,255,163,.10)',i===0?'rgba(20,255,170,.92)':'rgba(20,255,170,.55)'));
+  resistanceZones.forEach((z,i)=>band(z,i===0?'rgba(255,78,110,.18)':'rgba(255,78,110,.10)',i===0?'rgba(255,98,126,.92)':'rgba(255,98,126,.55)'));
+  data.forEach((c,i)=>{let x=pad.l+i*xstep+xstep*.5,yo=scaleY(c.open),yc=scaleY(c.close),yh=scaleY(c.high),yl=scaleY(c.low),up=c.close>=c.open,color=up?'#19ffb2':'#ff5b78';
+    ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=Math.max(2.2,Math.min(3.2,xstep*.28));ctx.beginPath();ctx.moveTo(x,yh);ctx.lineTo(x,yl);ctx.stroke();
+    let bw=Math.max(6,Math.min(12,xstep*.78)),top=Math.min(yo,yc),bh=Math.max(4,Math.abs(yc-yo));
+    ctx.shadowColor=color;ctx.shadowBlur=6;ctx.fillRect(x-bw/2,top,bw,bh);ctx.shadowBlur=0;ctx.strokeStyle=color;ctx.lineWidth=1;ctx.strokeRect(x-bw/2,top,bw,bh);
+  });
+}
+async function selectSymbol(s){state.selected=s;state.candles={};state.liveKlines={};persist();renderWatchlist();renderSelectedTicker();connectKlines();await analyzeSelected()}
+async function removeSymbol(s){
+  if(state.symbols.length<=1){alert('Cần giữ lại ít nhất 1 coin trong danh sách.');return}
+  if(!confirm(`Xóa ${s.replace('USDT','/USDT')} khỏi danh sách?`))return;
+  let wasSelected=state.selected===s;state.symbols=state.symbols.filter(x=>x!==s);state.favorites.delete(s);state.tickers.delete(s);
+  if(wasSelected)state.selected=state.symbols[0];state.candles={};if(wasSelected)state.liveKlines={};persist();renderWatchlist();renderSelectedTicker();connectTicker();if(wasSelected){connectKlines();await analyzeSelected();}
+}
+async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim();if(!s)return;if(!s.endsWith('USDT'))s+='USDT';els.add.disabled=true;try{let t=await validateSymbol(s);state.tickers.set(s,{price:t.price,change:t.change});if(!state.symbols.includes(s))state.symbols.push(s);state.selected=s;state.candles={};state.liveKlines={};els.input.value='';persist();renderWatchlist();connectTicker();connectKlines();await analyzeSelected()}catch{alert('Không tìm thấy cặp coin này trên Binance Spot hoặc Binance đang chặn kết nối từ mạng hiện tại.')}finally{els.add.disabled=false}}
+function setMode(m){state.mode=m;state.chartTf='4h';els.swing.classList.toggle('active',m==='swing');els.short.classList.toggle('active',m==='short');updateTimeframeButtons();persist();analyzeSelected()}
+els.swing.onclick=()=>setMode('swing');els.short.onclick=()=>setMode('short');els.add.onclick=addSymbol;els.input.addEventListener('keydown',e=>{if(e.key==='Enter')addSymbol()});els.refresh.onclick=analyzeSelected;els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>setChartTimeframe(b.dataset.tf)));window.addEventListener('resize',()=>{if(state.candles?.[state.chartTf])drawChart(state.candles[state.chartTf],state.analysis||{})});
+window.addEventListener('pagehide',()=>{try{state.klineWs?.close()}catch{};try{state.ws?.close()}catch{}});
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.deferredPrompt=e;els.install.classList.remove('hidden')});els.install.onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;els.install.classList.add('hidden')}};
+if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{let r=await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'});await r.update()}catch{}});
 
-  function scheduleWsReconnect() {
-    clearTimeout(state.wsTimer);
-    state.wsRetry += 1;
-    const delay = Math.min(30000, 1000 * (2 ** Math.min(state.wsRetry, 5))) + Math.floor(Math.random() * 700);
-    state.wsTimer = setTimeout(connectWebSocket, delay);
-  }
-
-  function switchMode(mode) {
-    if (!MODES[mode] || state.mode === mode) return;
-    state.mode = mode;
-    localStorage.setItem("bsw.mode", mode);
-    syncModeUI();
-    state.analysisGeneration++;
-    state.fetchController?.abort("mode changed");
-    analyzeSelected();
-  }
-
-  function switchSymbol(symbol) {
-    if (!SYMBOLS.includes(symbol) || state.symbol === symbol) return;
-    state.symbol = symbol;
-    localStorage.setItem("bsw.symbol", symbol);
-    state.analysisGeneration++;
-    state.fetchController?.abort("symbol changed");
-    el.livePrice.textContent = "—";
-    el.priceChange.textContent = "—";
-    connectWebSocket();
-    analyzeSelected();
-  }
-
-  function setupEvents() {
-    el.symbolSelect.addEventListener("change", e => switchSymbol(e.target.value));
-    el.shortModeBtn.addEventListener("click", () => switchMode("short"));
-    el.swingModeBtn.addEventListener("click", () => switchMode("swing"));
-    el.analyzeBtn.addEventListener("click", analyzeSelected);
-    el.clearHistoryBtn.addEventListener("click", () => {
-      localStorage.removeItem(historyKey());
-      renderHistory();
-      showToast("Đã xóa lịch sử trên thiết bị.");
-    });
-
-    window.addEventListener("beforeinstallprompt", e => {
-      e.preventDefault();
-      state.deferredInstallPrompt = e;
-      el.installBtn.classList.remove("hidden");
-    });
-
-    el.installBtn.addEventListener("click", async () => {
-      if (!state.deferredInstallPrompt) return;
-      state.deferredInstallPrompt.prompt();
-      await state.deferredInstallPrompt.userChoice;
-      state.deferredInstallPrompt = null;
-      el.installBtn.classList.add("hidden");
-    });
-
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && (!state.websocket || state.websocket.readyState > 1)) {
-        connectWebSocket();
-      }
-    });
-
-    window.addEventListener("online", () => {
-      connectWebSocket();
-      analyzeSelected();
-    });
-  }
-
-  function setupAutoRefresh() {
-    clearInterval(state.autoTimer);
-    state.autoTimer = setInterval(() => {
-      if (document.visibilityState === "visible" && navigator.onLine) analyzeSelected();
-    }, 5 * 60 * 1000);
-  }
-
-  async function registerServiceWorker() {
-    if ("serviceWorker" in navigator) {
-      try {
-        const reg = await navigator.serviceWorker.register("./sw.js", { scope: "./", updateViaCache: "none" });
-        await reg.update();
-      } catch (error) {
-        console.warn("Service worker:", error);
-      }
-    }
-  }
-
-  function init() {
-    initSymbolSelect();
-    syncModeUI();
-    setupEvents();
-    renderHistory();
-    connectWebSocket();
-    setupAutoRefresh();
-    registerServiceWorker();
-    analyzeSelected();
-  }
-
-  init();
+(async function init(){
+  if(!state.symbols.includes(state.selected))state.selected=state.symbols[0]||'BTCUSDT';if(state.mode==='short') state.chartTf='4h';els.swing.classList.toggle('active',state.mode==='swing');els.short.classList.toggle('active',state.mode==='short');updateTimeframeButtons();renderWatchlist();renderSelectedTicker();connectTicker();connectKlines();
+  try{let t=await validateSymbol(state.selected);state.tickers.set(state.selected,{price:t.price,change:t.change});renderWatchlist();renderSelectedTicker()}catch{}
+  analyzeSelected();
 })();

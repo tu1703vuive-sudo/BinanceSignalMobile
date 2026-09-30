@@ -1,11 +1,11 @@
 {
-  "name": "Binance Signal Web",
-  "short_name": "Signal Web",
-  "description": "Phân tích kỹ thuật đa khung thời gian từ dữ liệu thị trường công khai Binance.",
+  "name": "Binance Signal",
+  "short_name": "Binance Signal",
+  "description": "Binance Signal Market Monitor",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#070a0e",
+  "background_color": "#05080c",
   "theme_color": "#0b0f14",
   "icons": [
     {

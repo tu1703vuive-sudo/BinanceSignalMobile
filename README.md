@@ -1,70 +1,23 @@
-# Binance Signal Web
+# BinanceSignalMobile V2.12 — Mobile Original
 
-Bản web-only dành cho GitHub Pages. Không cần .NET, C#, Node.js hay server riêng.
+Bản này khôi phục đúng cấu trúc/chức năng WebPWA V2.12 từ file người dùng cung cấp.
 
-## File cần có trên GitHub
+Giữ nguyên:
+- Thêm coin / xóa coin
+- Favorite
+- Watchlist realtime
+- MiniTicker
+- Mini chart/candlestick canvas
+- Chọn 15m, 1h, 4h, 12h, 1d, 1w, 1M
+- Dài hạn / Ngắn hạn
+- Entry, SL, TP1-TP3
+- Support / Resistance
+- Toàn bộ engine trong app.js gốc
 
-- `index.html`
-- `styles.css`
-- `app.js`
-- `sw.js`
-- `manifest.webmanifest`
-- `.nojekyll`
-- `icons/icon-192.png`
-- `icons/icon-512.png`
+Chỉ thay:
+- CSS để khóa giao diện tối đa 430px
+- Watchlist chuyển sang thanh cuộn ngang trên mobile
+- Chart responsive theo đúng khung điện thoại
+- Cache version/service worker để tránh giữ UI cũ
 
-## Engine
-
-### Ngắn hạn
-- 4H: 45%
-- 1H: 35%
-- 15m: 20%
-- Không dùng 5m.
-
-### Dài hạn
-- 1W: 30%
-- 1D: 30%
-- 12H: 20%
-- 4H: 20%
-
-Mỗi timeframe tạo bias từ EMA20/50/200, MACD histogram, RSI14 và market structure.
-Support/Resistance dùng pivot được gom cụm đa timeframe.
-
-`Độ đồng thuận` là điểm của bộ luật, **không phải xác suất thắng**.
-
-## Upload lên GitHub Pages
-
-1. Sao lưu repo cũ nếu cần.
-2. Xóa các file/folder cũ trong branch `main`.
-3. Upload toàn bộ nội dung trong thư mục này vào **root** của repo.
-4. GitHub: Settings → Pages → Deploy from a branch → `main` → `/(root)`.
-5. Mở:
-   `https://<username>.github.io/<repository>/`
-
-Nếu vừa cập nhật mà vẫn thấy giao diện cũ:
-- tải lại trang bằng Ctrl+F5, hoặc
-- DevTools → Application → Service Workers → Unregister, sau đó reload.
-
-## Lưu ý
-
-Ứng dụng chỉ đọc dữ liệu thị trường công khai. Không chứa API key và không gửi lệnh giao dịch.
-
-
-## Mobile Fixed UI
-
-Bản này khóa giao diện theo mobile:
-- max-width 480px
-- desktop vẫn hiển thị khung mobile ở giữa
-- hỗ trợ safe-area iPhone
-- control cao 48px
-- font input/select 16px để tránh iOS auto-zoom
-- bảng dữ liệu cuộn ngang
-- không thay đổi logic Signal Engine
-
-
-## Mobile Hard Lock V3
-
-Bản này ép layout mobile trực tiếp trong `index.html`.
-Dấu hiệu đúng bản: đầu trang phải hiện `WEB ONLY · MOBILE LOCK V3`.
-
-Nếu không thấy dòng này, GitHub Pages vẫn đang chạy file `index.html` cũ hoặc bạn upload vào thư mục con thay vì root.
+Upload toàn bộ file trong thư mục này vào ROOT của GitHub Pages.
