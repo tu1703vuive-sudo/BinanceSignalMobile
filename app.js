@@ -1,7 +1,8 @@
 'use strict';
 
-const APP_VERSION='3.2.0';
-const ENGINE_VERSION='short-v2.2';
+const APP_VERSION='3.3.0';
+const ENGINE_VERSION='short-v2.2+sr-v2.0';
+const SR_VERSION='sr-v2.0';
 const SHORT_STRATEGY=Object.freeze({
   timeframes:['15m','1h','4h'],
   weights:Object.freeze({'4h':45,'1h':35,'15m':20}),
@@ -107,25 +108,56 @@ function getPivotLevels(c,lookback,kind,tf){
   }
   return out;
 }
-function pivotZones(c,lookback,tf,atrWidth,profile,kind,maxCount=1){
+function pivotZones(c,lookback,tf,atrWidth,profile,kind,maxCount=2){
   let subset=c.slice(-Math.min(lookback,c.length)), ref=subset.at(-1)?.close||c.at(-1)?.close||0;
-  let a=safeAtr(subset,Math.max(ref*.01,1e-8)), mr=profile==='swing'?.0016:.00065, width=Math.max(a*atrWidth*.72,Math.max(ref*mr,1e-8));
-  let pivots=getPivotLevels(c,lookback,kind,tf).map(x=>x.price);
-  let baseline=kind==='support'?recentSupport(subset,subset.length):recentResistance(subset,subset.length);
-  if(!pivots.length) pivots=[baseline];
-  let sameSide=kind==='support'?pivots.filter(v=>v<=ref):pivots.filter(v=>v>=ref);
-  let usable=(sameSide.length?sameSide:pivots).sort((x,y)=>kind==='support'?y-x:x-y);
-  let zones=[];
-  for(let anchor of usable){
-    if(zones.some(z=>Math.abs(z.mid-anchor)<=a*.45)) continue;
-    let cluster=usable.filter(v=>Math.abs(v-anchor)<=a*.35);
-    if(!cluster.length) cluster=[anchor];
-    let low=Math.min(...cluster), high=Math.max(...cluster);
-    let z=kind==='support'?zone(low,Math.max(high,anchor+width*.55),profile,tf):zone(Math.max(0,Math.min(low,anchor-width*.55)),high,profile,tf);
-    zones.push(z);
-    if(zones.length>=maxCount) break;
+  if(!subset.length||!ref)return[];
+  let a=safeAtr(subset,Math.max(ref*.01,1e-8)),mr=profile==='swing'?.0016:.00065;
+  let baseWidth=Math.max(a*atrWidth*.72,Math.max(ref*mr,1e-8));
+  let pivots=getPivotLevels(c,lookback,kind,tf);
+  let sameSide=kind==='support'?pivots.filter(x=>x.price<=ref+a*.08):pivots.filter(x=>x.price>=ref-a*.08);
+  if(!sameSide.length)return[];
+
+  let clusterTol=Math.max(a*.35,ref*(profile==='swing'?.0012:.00055));
+  let candidates=[];
+  for(let anchor of sameSide){
+    if(candidates.some(z=>Math.abs(z.mid-anchor.price)<=clusterTol*.80))continue;
+    let cluster=sameSide.filter(x=>Math.abs(x.price-anchor.price)<=clusterTol);
+    if(!cluster.length)cluster=[anchor];
+
+    let weights=cluster.map(x=>{
+      let age=Math.max(0,subset.length-1-x.index),c0=x.candle,range=Math.max(c0.high-c0.low,1e-8);
+      let bodyTop=Math.max(c0.open,c0.close),bodyBottom=Math.min(c0.open,c0.close);
+      let rejection=kind==='support'?Math.max(0,bodyBottom-c0.low)/range:Math.max(0,c0.high-bodyTop)/range;
+      let recency=1/(1+age*.06);
+      return 1+rejection*1.6+recency;
+    });
+    let wsum=weights.reduce((x,y)=>x+y,0),center=cluster.reduce((sum,x,i)=>sum+x.price*weights[i],0)/Math.max(wsum,1e-8);
+    let prices=cluster.map(x=>x.price),span=Math.max(...prices)-Math.min(...prices),pad=Math.max(baseWidth*.42,(baseWidth-span)*.50,ref*.0002);
+    let low,high;
+    if(kind==='support'){low=Math.max(0,Math.min(...prices)-pad*.20);high=Math.max(...prices)+pad;}
+    else{low=Math.max(0,Math.min(...prices)-pad);high=Math.max(...prices)+pad*.20;}
+
+    let z=zone(low,high,profile,tf),touches=cluster.length;
+    let rejectionScore=cluster.reduce((sum,x)=>{
+      let c0=x.candle,range=Math.max(c0.high-c0.low,1e-8),bodyTop=Math.max(c0.open,c0.close),bodyBottom=Math.min(c0.open,c0.close);
+      return sum+(kind==='support'?Math.max(0,bodyBottom-c0.low):Math.max(0,c0.high-bodyTop))/range;
+    },0);
+    let recencyScore=cluster.reduce((sum,x)=>sum+1/(1+Math.max(0,subset.length-1-x.index)*.06),0);
+    let dist=Math.abs(center-ref)/Math.max(a,1e-8);
+    z.touches=touches;z.center=center;z.rejectionScore=rejectionScore;z.recencyScore=recencyScore;
+    z.rankScore=touches*100+rejectionScore*24+recencyScore*12-dist*4;
+    z.source='Pivot Cluster';z.kind=kind;z.lookback=lookback;
+    candidates.push(z);
   }
-  return zones.length?zones:[kind==='support'?zone(baseline,baseline+width,profile,tf):zone(Math.max(0,baseline-width),baseline,profile,tf)];
+
+  candidates.sort((x,y)=>y.rankScore-x.rankScore||Math.abs(x.mid-ref)-Math.abs(y.mid-ref));
+  let selected=[];
+  for(let z of candidates){
+    if(selected.some(s=>Math.abs(s.mid-z.mid)<=clusterTol*.9))continue;
+    selected.push(z);
+    if(selected.length>=maxCount)break;
+  }
+  return selected;
 }
 function strength(frames,profile){
   let s=new Set(frames);
@@ -155,8 +187,8 @@ function buildResistance(c,lookback,tf,atrWidth,profile){
   let width=Math.max(a*atrWidth,Math.max(resistance*minWidthRatio,1e-8));
   return zone(Math.max(0,resistance-width),resistance,profile,tf);
 }
-function buildSupportZones(c,lookback,tf,atrWidth,profile,maxCount=2){return[buildSupport(c,lookback,tf,atrWidth,profile)]}
-function buildResistanceZones(c,lookback,tf,atrWidth,profile,maxCount=2){return[buildResistance(c,lookback,tf,atrWidth,profile)]}
+function buildSupportZones(c,lookback,tf,atrWidth,profile,maxCount=2){return pivotZones(c,lookback,tf,atrWidth,profile,'support',maxCount)}
+function buildResistanceZones(c,lookback,tf,atrWidth,profile,maxCount=2){return pivotZones(c,lookback,tf,atrWidth,profile,'resistance',maxCount)}
 function wickResistanceClusters4H(c,lookback){
   let all=closedCandles(c),subset=all.slice(-Math.min(lookback,all.length));
   if(!subset.length)return{zones:[],ref:0,atr:0,tol:0};
@@ -309,7 +341,7 @@ function analyzeShort(data){
   else reasons.push(`○ 15m: timing chưa đồng thuận (RSI ${r15.toFixed(1)})`);
   if(r15>72)reasons.push('⚠ 15m: RSI cao, tránh đuổi LONG');else if(r15<28)reasons.push('⚠ 15m: RSI thấp, tránh đuổi SHORT');
 
-  reasons.push(`○ Short ${ENGINE_VERSION}: S/R dùng 4H + 1H + 15m; 5m đã loại hoàn toàn.`);
+  reasons.push(`○ Short ${ENGINE_VERSION}: S/R V2 dùng Pivot Cluster trên 4H + 1H + 15m; 5m đã loại hoàn toàn.`);
   // Canonical Short V2.2: 4H 45% • 1H 35% • 15m 20%.
   let score=clamp(
     t4*SHORT_STRATEGY.weights['4h']+
@@ -328,22 +360,26 @@ function analyzeShort(data){
 
   let p=last15.close;
   let rawSupports=[
-    buildSupport(H4,80,'4H',.40,'short'),
-    buildSupport(H1,100,'1H',.32,'short'),
-    buildSupport(C15,120,'15m',.25,'short')
+    ...buildSupportZones(H4,120,'4H',.42,'short',2),
+    ...buildSupportZones(H1,160,'1H',.34,'short',2),
+    ...buildSupportZones(C15,180,'15m',.28,'short',2)
   ];
   let rawResistances=[
-    buildResistance(H4,80,'4H',.40,'short'),
-    buildResistance(H1,100,'1H',.32,'short'),
-    buildResistance(C15,120,'15m',.25,'short')
+    ...buildResistanceZones(H4,120,'4H',.42,'short',2),
+    ...buildResistanceZones(H1,160,'1H',.34,'short',2),
+    ...buildResistanceZones(C15,180,'15m',.28,'short',2)
   ];
-  let su=rankSupports(mergeZones(rawSupports,'short',.28),p).slice(0,4);
-  let re=rankRes(mergeZones(rawResistances,'short',.28),p).slice(0,4);
-  let ps=su.find(z=>z.mid<=p)||su[0],pr=re.find(z=>z.mid>=p)||re[0];
+  let mergedSupports=mergeZones(rawSupports,'short',.32),mergedResistances=mergeZones(rawResistances,'short',.32);
+  let su=rankSupports(mergedSupports.filter(z=>z.low<=p+.12*a15),p).slice(0,4);
+  let re=rankRes(mergedResistances.filter(z=>z.high>=p-.12*a15),p).slice(0,4);
+  let ps=su.find(z=>z.mid<=p)||su.find(z=>z.low<=p)||null;
+  let pr=re.find(z=>z.mid>=p)||re.find(z=>z.high>=p)||null;
 
   // S/R quyết định vùng giao dịch; EMA20 15m chỉ dùng để thu hẹp timing bên trong vùng.
   let nearSupport=!!ps&&p>=ps.low-.20*a4&&p<=ps.high+.45*a4;
   let nearResistance=!!pr&&p<=pr.high+.20*a4&&p>=pr.low-.45*a4;
+  if(!ps)reasons.push('○ S/R V2: chưa có Pivot Support hợp lệ phía dưới giá hiện tại.');
+  if(!pr)reasons.push('○ S/R V2: chưa có Pivot Resistance hợp lệ phía trên giá hiện tại.');
   if(nearSupport)reasons.push(`✓ Giá đang gần vùng hỗ trợ ${fmt(ps.low)}–${fmt(ps.high)} [${ps.frames.join('+')}]`);
   if(nearResistance)reasons.push(`✓ Giá đang gần vùng kháng cự ${fmt(pr.low)}–${fmt(pr.high)} [${pr.frames.join('+')}]`);
 

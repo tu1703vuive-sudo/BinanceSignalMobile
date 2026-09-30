@@ -1,0 +1,10 @@
+BinanceSignalMobile v3.3.0
+
+Upload de len ROOT repo GitHub Pages:
+- app.js
+- index.html
+- sw.js
+- README.md (khong bat buoc cho website)
+
+Khong xoa styles.css, manifest.webmanifest, icons hoac localStorage.
+Sau commit, mo website bang tab an danh hoac hard refresh de kiem tra.
