@@ -1,12 +1,14 @@
 'use strict';
 
-const APP_VERSION='3.2.1';
+const APP_VERSION='3.2.2';
 const DATA_ENGINE_VERSION='ws-cache-v1';
 const ENGINE_VERSION='short-v2.2';
 const CANDLE_CACHE_LIMIT=300;
 const CANDLE_CACHE_MAX_ENTRIES=35;
 const CANDLE_CACHE_FRESH_MS=90000;
 const TICKER_RENDER_INTERVAL=120;
+const CHART_RENDER_INTERVAL=90;
+const CHART_MAX_DPR=2;
 const WS_RECONNECT_BASE_MS=1200;
 const WS_RECONNECT_MAX_MS=12000;
 
@@ -53,8 +55,8 @@ const state={
   tickers:new Map(), candles:{}, liveKlines:{},
   candleCache:new Map(), candleCacheMeta:new Map(), pendingKlines:new Map(),
   ws:null, klineWs:null, klineReconnectTimer:null, tickerReconnectTimer:null,
-  klineReconnectAttempt:0, tickerReconnectAttempt:0, tickerRenderTimer:null, chartRenderQueued:false,
-  analysis:null, deferredPrompt:null, analysisToken:0
+  klineReconnectAttempt:0, tickerReconnectAttempt:0, tickerRenderTimer:null, chartRenderTimer:null, chartRenderQueued:false,
+  chartLastRenderAt:0, chartHoverTime:null, analysis:null, deferredPrompt:null, analysisToken:0
 };
 if(!CHART_TIMEFRAMES.includes(state.chartTf)) state.chartTf='4h';
 const DEFAULT_MODE_VERSION='short-default-v1';
@@ -70,7 +72,7 @@ const $=id=>document.getElementById(id);
 const els={
   conn:$('connStatus'), swing:$('modeSwing'), short:$('modeShort'), input:$('symbolInput'), add:$('addSymbolBtn'), refresh:$('refreshBtn'),
   watch:$('watchList'), count:$('watchCount'), symbol:$('selectedSymbol'), mode:$('modeLabel'), price:$('selectedPrice'), change:$('selectedChange'),
-  badge:$('signalBadge'), score:$('scoreText'), tf:$('timeframes'), hint:$('planHint'), planTitle:$('inlinePlanTitle'), canvas:$('chartCanvas'), chartTitle:$('chartTitle'), updated:$('updatedAt'),
+  badge:$('signalBadge'), score:$('scoreText'), tf:$('timeframes'), hint:$('planHint'), planTitle:$('inlinePlanTitle'), canvas:$('chartCanvas'), chartTitle:$('chartTitle'), updated:$('updatedAt'), chartStats:$('chartStats'), chartLive:$('chartLiveBadge'),
   entry:$('entryValue'), sl:$('slValue'), tp1:$('tp1Value'), tp2:$('tp2Value'), tp3:$('tp3Value'), invalid:$('invalidValue'), trigger:$('triggerText'), breakout:$('breakoutText'),
   supports:$('supportList'), resistances:$('resistanceList'), reasons:$('reasonsList'), install:$('installBtn'), tfSelector:$('timeframeSelector')
 };
@@ -470,9 +472,18 @@ function updateCachedCandle(symbol,interval,candle,market=state.market){
   if(symbol===state.selected&&market===state.market)state.candles[interval]=arr;
   return arr;
 }
-function scheduleChartRender(){
-  if(state.chartRenderQueued)return;state.chartRenderQueued=true;
-  requestAnimationFrame(()=>{state.chartRenderQueued=false;let arr=state.candles?.[state.chartTf];if(arr?.length)drawChart(arr,state.analysis||{})});
+function scheduleChartRender(immediate=false){
+  if(state.chartRenderQueued)return;
+  const run=()=>{
+    state.chartRenderTimer=null;state.chartRenderQueued=true;
+    requestAnimationFrame(()=>{
+      state.chartRenderQueued=false;state.chartLastRenderAt=performance.now();
+      let arr=state.candles?.[state.chartTf];if(arr?.length)drawChart(arr,state.analysis||{});
+    });
+  };
+  let elapsed=performance.now()-(state.chartLastRenderAt||0);
+  if(immediate||elapsed>=CHART_RENDER_INTERVAL){run();return}
+  if(!state.chartRenderTimer)state.chartRenderTimer=setTimeout(run,Math.max(0,CHART_RENDER_INTERVAL-elapsed));
 }
 function scheduleTickerRender(){
   if(state.tickerRenderTimer)return;
@@ -630,23 +641,97 @@ async function analyzeSelected({forceRest=false,source='ui'}={}){
     if(token===state.analysisToken&&requestMarket===state.market)renderAnalysis(basicWait(requestMode==='swing'?'DÀI HẠN':'NGẮN HẠN',`Không tải được Binance ${marketLabel(requestMarket)}: ${e.message||e}`));
   }finally{if(token===state.analysisToken)els.refresh.disabled=false}
 }
+function chartVisibleCount(w){return w<350?46:w<410?52:58}
+function chartTimeLabel(openTime,tf){
+  let d=new Date(openTime),opt=(tf==='1d'||tf==='1w'||tf==='1M')?{day:'2-digit',month:'2-digit'}:{hour:'2-digit',minute:'2-digit'};
+  return d.toLocaleString('vi-VN',opt);
+}
 function drawChart(candles,a){
-  const cvs=els.canvas,ctx=cvs.getContext('2d');let dpr=window.devicePixelRatio||1,w=cvs.clientWidth,h=cvs.clientHeight;cvs.width=Math.floor(w*dpr);cvs.height=Math.floor(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);ctx.fillStyle='#060a0f';ctx.fillRect(0,0,w,h);
+  const cvs=els.canvas;if(!cvs)return;
+  const ctx=cvs.getContext('2d',{alpha:false});
+  let w=Math.max(280,Math.round(cvs.clientWidth||cvs.getBoundingClientRect().width||320));
+  let h=Math.max(240,Math.round(cvs.clientHeight||280));
+  let dpr=Math.min(CHART_MAX_DPR,window.devicePixelRatio||1),bw=Math.round(w*dpr),bh=Math.round(h*dpr);
+  if(cvs.width!==bw||cvs.height!==bh){cvs.width=bw;cvs.height=bh}
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+  let bg=ctx.createLinearGradient(0,0,0,h);bg.addColorStop(0,'#0a1119');bg.addColorStop(1,'#05090e');ctx.fillStyle=bg;ctx.fillRect(0,0,w,h);
   if(!candles?.length)return;
-  let visible=w<420?42:w<900?52:58;
-  let data=candles.slice(-visible);if(!data.length)return;
-  let lo=Math.min(...data.map(x=>x.low)),hi=Math.max(...data.map(x=>x.high));let extra=(hi-lo)*.12||1;lo-=extra;hi+=extra;
-  let pad={l:10,r:68,t:12,b:18},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,xstep=cw/data.length,scaleY=v=>pad.t+(hi-v)/(hi-lo)*ch;
-  ctx.strokeStyle='#25364a';ctx.lineWidth=1.1;for(let i=0;i<5;i++){let y=pad.t+i*ch/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();let val=hi-(hi-lo)*i/4;ctx.fillStyle='#c8d4e4';ctx.font='11px -apple-system,BlinkMacSystemFont,sans-serif';ctx.fillText(fmt(val),w-pad.r+5,y+4)}
-  function band(z,fill,stroke){if(!z)return;let y1=scaleY(z.high),y2=scaleY(z.low),bh=Math.max(3,y2-y1);ctx.fillStyle=fill;ctx.fillRect(pad.l,y1,cw,bh);ctx.strokeStyle=stroke;ctx.lineWidth=1.35;ctx.strokeRect(pad.l+.5,y1+.5,cw-1,Math.max(1,bh-1));ctx.beginPath();ctx.moveTo(pad.l,y1);ctx.lineTo(pad.l+cw,y1);ctx.moveTo(pad.l,y2);ctx.lineTo(pad.l+cw,y2);ctx.stroke()}
-  let supportZones=(a.supports||[]).slice(0,2), resistanceZones=(a.resistances||[]).slice(0,2);
-  supportZones.forEach((z,i)=>band(z,i===0?'rgba(0,255,163,.18)':'rgba(0,255,163,.10)',i===0?'rgba(20,255,170,.92)':'rgba(20,255,170,.55)'));
-  resistanceZones.forEach((z,i)=>band(z,i===0?'rgba(255,78,110,.18)':'rgba(255,78,110,.10)',i===0?'rgba(255,98,126,.92)':'rgba(255,98,126,.55)'));
-  data.forEach((c,i)=>{let x=pad.l+i*xstep+xstep*.5,yo=scaleY(c.open),yc=scaleY(c.close),yh=scaleY(c.high),yl=scaleY(c.low),up=c.close>=c.open,color=up?'#19ffb2':'#ff5b78';
-    ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=Math.max(2.2,Math.min(3.2,xstep*.28));ctx.beginPath();ctx.moveTo(x,yh);ctx.lineTo(x,yl);ctx.stroke();
-    let bw=Math.max(6,Math.min(12,xstep*.78)),top=Math.min(yo,yc),bh=Math.max(4,Math.abs(yc-yo));
-    ctx.shadowColor=color;ctx.shadowBlur=6;ctx.fillRect(x-bw/2,top,bw,bh);ctx.shadowBlur=0;ctx.strokeStyle=color;ctx.lineWidth=1;ctx.strokeRect(x-bw/2,top,bw,bh);
+
+  let visible=chartVisibleCount(w),data=candles.slice(-visible);if(!data.length)return;
+  let pad={l:11,r:68,t:25,b:25},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,volumeH=Math.max(26,ch*.15),priceH=ch-volumeH-7;
+  let rawLo=Math.min(...data.map(x=>x.low)),rawHi=Math.max(...data.map(x=>x.high)),rawRange=Math.max(rawHi-rawLo,Math.abs(rawHi)*.001,1e-8);
+  let overlay=[a?.entryLow,a?.entryHigh,a?.watchLow,a?.watchHigh,a?.sl,a?.tp1,a?.tp2,a?.tp3].filter(Number.isFinite).filter(v=>v>=rawLo-rawRange*.35&&v<=rawHi+rawRange*.35);
+  let lo=Math.min(rawLo,...overlay),hi=Math.max(rawHi,...overlay),extra=Math.max((hi-lo)*.10,rawRange*.06,1e-8);lo-=extra;hi+=extra;
+  let xstep=cw/data.length,scaleY=v=>pad.t+(hi-v)/(hi-lo)*priceH,priceBottom=pad.t+priceH,volumeBottom=pad.t+ch;
+
+  // Soft grid + right price scale.
+  ctx.font='10px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';ctx.textBaseline='middle';
+  for(let i=0;i<5;i++){
+    let y=pad.t+i*priceH/4,val=hi-(hi-lo)*i/4;
+    ctx.strokeStyle='rgba(118,145,174,.14)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(pad.l,y+.5);ctx.lineTo(w-pad.r,y+.5);ctx.stroke();
+    ctx.fillStyle='#8799ae';ctx.fillText(fmt(val),w-pad.r+6,y);
+  }
+  for(let i=1;i<4;i++){
+    let x=pad.l+cw*i/4;ctx.strokeStyle='rgba(118,145,174,.07)';ctx.beginPath();ctx.moveTo(x,pad.t);ctx.lineTo(x,priceBottom);ctx.stroke();
+  }
+  ctx.strokeStyle='rgba(118,145,174,.12)';ctx.beginPath();ctx.moveTo(pad.l,priceBottom+4);ctx.lineTo(w-pad.r,priceBottom+4);ctx.stroke();
+
+  function band(z,fill,stroke,label){
+    if(!z)return;let top=Math.min(scaleY(z.high),scaleY(z.low)),bottom=Math.max(scaleY(z.high),scaleY(z.low));
+    if(bottom<pad.t||top>priceBottom)return;top=Math.max(pad.t,top);bottom=Math.min(priceBottom,bottom);let hh=Math.max(3,bottom-top);
+    ctx.fillStyle=fill;ctx.fillRect(pad.l,top,cw,hh);ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.setLineDash([4,5]);ctx.strokeRect(pad.l+.5,top+.5,cw-1,Math.max(1,hh-1));ctx.setLineDash([]);
+    if(label){ctx.fillStyle=stroke;ctx.font='bold 9px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';ctx.fillText(label,pad.l+5,top+Math.min(9,hh/2));}
+  }
+  let supportZones=(a.supports||[]).slice(0,2),resistanceZones=(a.resistances||[]).slice(0,2);
+  supportZones.forEach((z,i)=>band(z,i===0?'rgba(25,230,162,.115)':'rgba(25,230,162,.055)',i===0?'rgba(25,230,162,.66)':'rgba(25,230,162,.34)',i===0?'SUP':''));
+  resistanceZones.forEach((z,i)=>band(z,i===0?'rgba(255,91,120,.115)':'rgba(255,91,120,.055)',i===0?'rgba(255,91,120,.66)':'rgba(255,91,120,.34)',i===0?'RES':''));
+  let entryLow=Number.isFinite(a.entryLow)?a.entryLow:a.watchLow,entryHigh=Number.isFinite(a.entryHigh)?a.entryHigh:a.watchHigh;
+  if(Number.isFinite(entryLow)&&Number.isFinite(entryHigh))band({low:Math.min(entryLow,entryHigh),high:Math.max(entryLow,entryHigh)},'rgba(240,185,11,.12)','rgba(240,185,11,.72)','ENTRY');
+
+  // Volume strip: useful context with very little visual noise.
+  let maxVol=Math.max(...data.map(x=>x.volume||0),1);
+  data.forEach((c,i)=>{
+    let x=pad.l+i*xstep+xstep*.5,bh=(c.volume||0)/maxVol*(volumeH-4),up=c.close>=c.open;
+    ctx.fillStyle=up?'rgba(25,230,162,.18)':'rgba(255,91,120,.18)';ctx.fillRect(x-Math.max(1,xstep*.28),volumeBottom-bh,Math.max(2,xstep*.56),bh);
   });
+
+  // Candles. Avoid expensive shadowBlur on every websocket tick.
+  data.forEach((c,i)=>{
+    let x=pad.l+i*xstep+xstep*.5,yo=scaleY(c.open),yc=scaleY(c.close),yh=scaleY(c.high),yl=scaleY(c.low),up=c.close>=c.open,color=up?'#21dca2':'#ff627e';
+    ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=Math.max(1.15,Math.min(1.8,xstep*.20));ctx.beginPath();ctx.moveTo(x,yh);ctx.lineTo(x,yl);ctx.stroke();
+    let bw=Math.max(3.5,Math.min(8.5,xstep*.66)),top=Math.min(yo,yc),bodyH=Math.max(2,Math.abs(yc-yo));ctx.fillRect(x-bw/2,top,bw,bodyH);
+  });
+
+  function priceLine(value,label,color,dash=[5,5]){
+    if(!Number.isFinite(value))return;let y=scaleY(value);if(y<pad.t||y>priceBottom)return;
+    ctx.save();ctx.strokeStyle=color;ctx.lineWidth=1;ctx.setLineDash(dash);ctx.beginPath();ctx.moveTo(pad.l,y+.5);ctx.lineTo(w-pad.r,y+.5);ctx.stroke();ctx.setLineDash([]);
+    ctx.font='bold 9px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';let text=`${label} ${fmt(value)}`,tw=ctx.measureText(text).width+10,x=Math.max(pad.l,w-pad.r-tw-2);
+    ctx.fillStyle='rgba(4,8,12,.86)';ctx.fillRect(x,y-8,tw,16);ctx.fillStyle=color;ctx.fillText(text,x+5,y);ctx.restore();
+  }
+  priceLine(a.sl,'SL','#ff718a',[3,4]);priceLine(a.tp3,'TP3','#4fd6a5',[3,5]);priceLine(a.tp2,'TP2','#3bd59b',[3,5]);priceLine(a.tp1,'TP1','#24e2a0',[3,5]);
+
+  let last=data.at(-1),lastY=scaleY(last.close);
+  if(lastY>=pad.t&&lastY<=priceBottom){
+    ctx.strokeStyle='rgba(106,169,255,.72)';ctx.lineWidth=1;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(pad.l,lastY+.5);ctx.lineTo(w-pad.r,lastY+.5);ctx.stroke();ctx.setLineDash([]);
+    let txt=fmt(last.close),tw=ctx.measureText(txt).width+12;ctx.fillStyle='#6aa9ff';ctx.fillRect(w-pad.r+1,lastY-9,Math.min(pad.r-3,tw),18);ctx.fillStyle='#07101c';ctx.font='bold 9px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';ctx.fillText(txt,w-pad.r+6,lastY);
+  }
+
+  // Time anchors.
+  ctx.fillStyle='#667b92';ctx.font='9px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';ctx.textBaseline='alphabetic';
+  [0,Math.floor((data.length-1)/2),data.length-1].forEach((idx,j)=>{let x=pad.l+idx*xstep+xstep*.5,label=chartTimeLabel(data[idx].openTime,state.chartTf),tw=ctx.measureText(label).width;ctx.fillText(label,Math.max(pad.l,Math.min(w-pad.r-tw,x-tw/2)),h-5)});
+
+  // Pointer crosshair + OHLC readout.
+  if(state.chartHoverTime!=null){
+    let idx=data.findIndex(c=>c.openTime===state.chartHoverTime);if(idx>=0){let c=data[idx],x=pad.l+idx*xstep+xstep*.5,y=scaleY(c.close);
+      ctx.strokeStyle='rgba(220,232,246,.36)';ctx.lineWidth=1;ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(x,pad.t);ctx.lineTo(x,priceBottom);ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle='#e8f0fa';ctx.beginPath();ctx.arc(x,y,2.6,0,Math.PI*2);ctx.fill();
+      let info=`O ${fmt(c.open)}   H ${fmt(c.high)}   L ${fmt(c.low)}   C ${fmt(c.close)}`;ctx.font='bold 9px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';let tw=ctx.measureText(info).width+14;
+      ctx.fillStyle='rgba(7,12,18,.92)';ctx.fillRect(pad.l+3,pad.t+3,Math.min(tw,cw-6),19);ctx.fillStyle='#dce8f6';ctx.fillText(info,pad.l+9,pad.t+13);
+    }
+  }
+
+  if(els.chartStats)els.chartStats.textContent=`${data.length} nến · cache realtime`;
+  if(els.chartLive){let live=state.klineWs?.readyState===1;els.chartLive.classList.toggle('online',live);els.chartLive.querySelector('span:last-child').textContent=live?'LIVE':'SYNC';}
 }
 async function selectSymbol(s){state.selected=s;state.candles={};state.liveKlines={};persist();renderWatchlist();renderSelectedTicker();connectKlines();await analyzeSelected()}
 async function removeSymbol(s){
@@ -657,8 +742,16 @@ async function removeSymbol(s){
 }
 async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim();if(!s)return;if(!s.endsWith('USDT'))s+='USDT';els.add.disabled=true;try{let t=await validateSymbol(s,state.market);state.tickers.set(s,{price:t.price,change:t.change});if(!state.symbols.includes(s))state.symbols.push(s);state.selected=s;state.candles={};state.liveKlines={};els.input.value='';persist();renderWatchlist();connectTicker();connectKlines();await analyzeSelected()}catch{alert(`Không tìm thấy ${s} trên Binance USDⓈ-M Futures hoặc Binance đang chặn kết nối từ mạng hiện tại.`)}finally{els.add.disabled=false}}
 function setMode(m){state.mode=m;state.chartTf='4h';els.swing.classList.toggle('active',m==='swing');els.short.classList.toggle('active',m==='short');updateTimeframeButtons();persist();analyzeSelected()}
-els.swing.onclick=()=>setMode('swing');els.short.onclick=()=>setMode('short');els.add.onclick=addSymbol;els.input.addEventListener('keydown',e=>{if(e.key==='Enter')addSymbol()});els.refresh.onclick=()=>analyzeSelected({forceRest:true,source:'manual'});els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>setChartTimeframe(b.dataset.tf)));window.addEventListener('resize',()=>{if(state.candles?.[state.chartTf])drawChart(state.candles[state.chartTf],state.analysis||{})});
-window.addEventListener('pagehide',()=>{clearTimeout(state.klineReconnectTimer);clearTimeout(state.tickerReconnectTimer);clearTimeout(state.tickerRenderTimer);clearTimeout(connectKlines._analysisTimer);try{state.klineWs?.close()}catch{};try{state.ws?.close()}catch{}});
+els.swing.onclick=()=>setMode('swing');els.short.onclick=()=>setMode('short');els.add.onclick=addSymbol;els.input.addEventListener('keydown',e=>{if(e.key==='Enter')addSymbol()});els.refresh.onclick=()=>analyzeSelected({forceRest:true,source:'manual'});els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>setChartTimeframe(b.dataset.tf)));
+function updateChartPointer(e){
+  let arr=state.candles?.[state.chartTf];if(!arr?.length||!els.canvas)return;let r=els.canvas.getBoundingClientRect(),x=e.clientX-r.left,w=r.width,padL=11,padR=68,cw=w-padL-padR;if(x<padL||x>w-padR)return;
+  let data=arr.slice(-chartVisibleCount(w)),step=cw/data.length,idx=clamp(Math.floor((x-padL)/step),0,data.length-1);state.chartHoverTime=data[idx]?.openTime??null;scheduleChartRender(true);
+}
+els.canvas?.addEventListener('pointermove',updateChartPointer,{passive:true});
+els.canvas?.addEventListener('pointerdown',updateChartPointer,{passive:true});
+els.canvas?.addEventListener('pointerleave',()=>{state.chartHoverTime=null;scheduleChartRender(true)});
+window.addEventListener('resize',()=>scheduleChartRender(true));
+window.addEventListener('pagehide',()=>{clearTimeout(state.klineReconnectTimer);clearTimeout(state.tickerReconnectTimer);clearTimeout(state.tickerRenderTimer);clearTimeout(state.chartRenderTimer);clearTimeout(connectKlines._analysisTimer);try{state.klineWs?.close()}catch{};try{state.ws?.close()}catch{}});
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState!=='visible')return;
   if(!state.ws||state.ws.readyState>=2)connectTicker();

@@ -1,3 +1,15 @@
+## v3.2.2 - Mini Chart V2 + UI Polish
+
+- Giữ nguyên Short V2.2, Swing Engine và Support/Resistance của v3.2.1.
+- Mini chart dùng candle cache/WebSocket hiện có, không thêm REST request riêng.
+- Throttle chart render ~90 ms và chỉ resize backing canvas khi kích thước thật sự thay đổi.
+- Bỏ shadowBlur trên từng nến để giảm GPU/CPU khi WebSocket cập nhật liên tục.
+- Thêm volume strip, current-price line, Entry/Watch zone, SL, TP1-TP3 và S/R trực tiếp trên chart.
+- Thêm crosshair + OHLC khi rê/chạm chart.
+- Timeframe selector gọn một hàng 7 nút, chart cao hơn và rõ hơn trên mobile.
+- Thêm LIVE/SYNC badge + số nến cache realtime.
+- Asset/cache bumped lên v3.2.2 để GitHub Pages/PWA nhận UI mới.
+
 
 ## v3.2.1 - WebSocket / Candle Cache
 

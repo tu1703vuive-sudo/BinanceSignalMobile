@@ -10,7 +10,7 @@
   <title>Binance Signal</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <link rel="stylesheet" href="./styles.css?v=321" />
+  <link rel="stylesheet" href="./styles.css?v=322" />
 </head>
 <body>
   <header class="topbar">
@@ -80,7 +80,10 @@
         </div>
 
         <div class="chart-card card">
-          <div class="section-title"><span id="chartTitle">Biểu đồ</span><span id="updatedAt" class="muted"></span></div>
+          <div class="section-title chart-title-row">
+            <span id="chartTitle">Biểu đồ</span>
+            <span class="chart-head-right"><span id="chartLiveBadge" class="chart-live"><i></i><span>SYNC</span></span><span id="updatedAt" class="muted"></span></span>
+          </div>
           <div id="timeframeSelector" class="timeframe-selector" aria-label="Khung thời gian biểu đồ">
             <button class="tf-btn" data-tf="15m">15m</button>
             <button class="tf-btn" data-tf="1h">1h</button>
@@ -90,7 +93,13 @@
             <button class="tf-btn" data-tf="1w">1w</button>
             <button class="tf-btn" data-tf="1M">1M</button>
           </div>
-          <canvas id="chartCanvas" width="1200" height="480"></canvas>
+          <div class="chart-legend" aria-hidden="true">
+            <span><i class="legend-sr"></i>S/R</span><span><i class="legend-entry"></i>Entry</span><span><i class="legend-tp"></i>TP</span><span><i class="legend-sl"></i>SL</span>
+          </div>
+          <div class="chart-stage">
+            <canvas id="chartCanvas" width="1200" height="560"></canvas>
+            <div id="chartStats" class="chart-stats">-- nến · cache realtime</div>
+          </div>
         </div>
 
         <div class="grid-2">
@@ -127,6 +136,6 @@
     </section>
   </main>
 
-  <script src="./app.js?v=321" defer></script>
+  <script src="./app.js?v=322" defer></script>
 </body>
 </html>

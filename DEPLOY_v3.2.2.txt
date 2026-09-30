@@ -1,0 +1,19 @@
+BinanceSignalMobile v3.2.2 — GitHub Pages update
+
+Upload/replace these files at the ROOT of the branch that publishes your website:
+- app.js
+- styles.css
+- index.html
+- sw.js
+
+Optional documentation:
+- README.md
+- CHANGELOG_v3.2.2.md
+
+After commit:
+1. Open the live site in an incognito/private tab.
+2. Hard refresh once.
+3. Confirm the chart shows LIVE, volume bars, current-price line and the one-row timeframe selector.
+4. Confirm Short/Swing signals and S/R values match v3.2.1 logic.
+
+Rollback: restore the v3.2.1 versions of app.js, styles.css, index.html and sw.js.
