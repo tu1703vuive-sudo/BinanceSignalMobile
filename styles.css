@@ -344,3 +344,293 @@ footer {
   .score-block { text-align: left; }
   .plan-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* =========================================================
+   MOBILE FIXED LAYOUT
+   Website luôn hiển thị theo bố cục điện thoại.
+   Desktop chỉ đóng vai trò nền, app nằm giữa màn hình.
+   ========================================================= */
+
+html {
+  background: #05080c;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  width: 100%;
+  min-width: 320px;
+  overflow-x: hidden;
+  padding: 0;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(240,185,11,.08), transparent 30%),
+    #05080c;
+}
+
+.app-shell {
+  width: 100%;
+  max-width: 480px;
+  min-height: 100dvh;
+  margin: 0 auto;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(240,185,11,.09), transparent 28%),
+    radial-gradient(circle at 90% 18%, rgba(88,166,255,.06), transparent 24%),
+    var(--bg);
+  border-left: 1px solid rgba(255,255,255,.04);
+  border-right: 1px solid rgba(255,255,255,.04);
+  box-shadow: 0 0 70px rgba(0,0,0,.45);
+}
+
+.topbar {
+  width: 100%;
+  min-height: 66px;
+  padding:
+    calc(10px + env(safe-area-inset-top))
+    14px
+    10px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  align-items: center;
+  background: rgba(7,10,14,.92);
+}
+
+.topbar h1 {
+  font-size: 19px;
+}
+
+.eyebrow {
+  font-size: 8px;
+  letter-spacing: .12em;
+}
+
+.status-wrap {
+  max-width: 122px;
+  justify-content: flex-end;
+  text-align: right;
+  font-size: 10px;
+}
+
+.container {
+  width: 100%;
+  margin: 0;
+  padding: 12px 10px 30px;
+  gap: 12px;
+}
+
+.panel {
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.23);
+}
+
+.control-grid {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.field > span,
+.muted {
+  font-size: 11px;
+}
+
+select,
+.primary-btn,
+.segmented {
+  min-height: 48px;
+  height: 48px;
+}
+
+select,
+button,
+input,
+textarea {
+  font-size: 16px;
+}
+
+.segment {
+  font-size: 13px;
+}
+
+.primary-btn {
+  width: 100%;
+  font-size: 15px;
+}
+
+.market-line {
+  margin-top: 12px;
+  padding-top: 12px;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.market-line > div {
+  min-width: 0;
+}
+
+.market-line > div:last-child {
+  grid-column: 1 / -1;
+}
+
+.market-line strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.hero-grid,
+.two-col {
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.card-head {
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.card-head h2 {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.signal-main {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.signal-badge {
+  font-size: 20px;
+}
+
+.signal-summary {
+  font-size: 13px;
+}
+
+.score-block {
+  min-width: 0;
+  text-align: left;
+  grid-template-columns: auto auto;
+  align-items: end;
+  justify-content: space-between;
+}
+
+.score-block strong {
+  font-size: 31px;
+}
+
+.score-block small {
+  grid-column: 1 / -1;
+}
+
+.plan-grid {
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.plan-grid > div {
+  padding: 10px;
+}
+
+.plan-grid strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.zone-item {
+  grid-template-columns: minmax(0,1fr) auto;
+  padding: 10px;
+}
+
+.zone-price {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.zone-meta {
+  font-size: 10px;
+}
+
+.table-wrap {
+  margin: 0 -14px;
+  padding: 0 14px 2px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+table {
+  min-width: 760px;
+}
+
+th,
+td {
+  padding: 10px 8px;
+  font-size: 11px;
+}
+
+th {
+  font-size: 9px;
+}
+
+.reason-list,
+.engine-notes {
+  font-size: 12px;
+}
+
+.notice {
+  font-size: 11px;
+}
+
+footer {
+  width: 100%;
+  margin: 0;
+  padding:
+    12px 12px
+    calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid rgba(255,255,255,.05);
+  font-size: 10px;
+}
+
+.toast {
+  max-width: calc(100vw - 24px);
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  text-align: center;
+}
+
+/* Điện thoại rất nhỏ */
+@media (max-width: 360px) {
+  .container {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .panel {
+    padding: 12px;
+  }
+
+  .plan-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .status-wrap {
+    max-width: 100px;
+  }
+}
+
+/* Desktop/tablet: vẫn giữ nguyên khung mobile, không bung layout */
+@media (min-width: 481px) {
+  body {
+    padding: 18px 0;
+  }
+
+  .app-shell {
+    min-height: calc(100dvh - 36px);
+    border-radius: 22px;
+    overflow: clip;
+  }
+
+  .topbar {
+    border-radius: 22px 22px 0 0;
+  }
+}

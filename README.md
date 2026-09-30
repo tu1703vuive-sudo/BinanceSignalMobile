@@ -48,3 +48,15 @@ Nếu vừa cập nhật mà vẫn thấy giao diện cũ:
 ## Lưu ý
 
 Ứng dụng chỉ đọc dữ liệu thị trường công khai. Không chứa API key và không gửi lệnh giao dịch.
+
+
+## Mobile Fixed UI
+
+Bản này khóa giao diện theo mobile:
+- max-width 480px
+- desktop vẫn hiển thị khung mobile ở giữa
+- hỗ trợ safe-area iPhone
+- control cao 48px
+- font input/select 16px để tránh iOS auto-zoom
+- bảng dữ liệu cuộn ngang
+- không thay đổi logic Signal Engine
