@@ -1,3 +1,13 @@
+# v3.2.6 — RSI Momentum 5 khung
+
+Thêm bảng RSI 14 của **1M (tháng) · 1D · 4H · 1H · 15M** ngay trên biểu đồ. RSI trực tiếp để quan sát; điểm xu hướng và xác nhận dùng nến đã đóng. Có THIÊN LONG / THIÊN SHORT / TRUNG LẬP và điều kiện còn thiếu.
+
+Cập nhật đủ **index.html, app.js, styles.css, sw.js và rsi-mtf.js**. Hướng dẫn, công thức và kết quả kiểm tra: [DEPLOY_v3.2.6.md](DEPLOY_v3.2.6.md).
+
+Giữ nguyên Short V2.2, Swing và Entry/SL/TP. Bộ RSI mới đánh giá độc lập; chưa backtest các trọng số. Các ghi chú bên dưới là lịch sử phiên bản.
+
+---
+
 ## v3.2.4 - RSI 14 Chart Panel
 
 - Thêm panel RSI (14) ngay dưới Mini Chart V2.

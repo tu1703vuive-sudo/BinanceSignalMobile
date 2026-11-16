@@ -10,7 +10,7 @@
   <title>Binance Signal</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <link rel="stylesheet" href="./styles.css?v=325" />
+  <link rel="stylesheet" href="./styles.css?v=326" />
 </head>
 <body>
   <header class="topbar">
@@ -78,6 +78,32 @@
             <div id="breakoutText" class="subnote inline-plan-note"></div>
           </div>
         </div>
+
+        <section id="rsiMtf" class="rsi-mtf card" aria-labelledby="rsiMtfTitle">
+          <div class="section-title"><span id="rsiMtfTitle">RSI · 5 KHUNG</span><span class="rsi-mtf-mode">Momentum</span></div>
+          <div class="rsi-mtf-caption"><span id="rsiMtfSymbol">BTCUSDT</span><span>RSI 14 · Giá đóng cửa</span></div>
+          <div id="rsiMtfGrid" class="rsi-mtf-grid" aria-label="RSI trực tiếp theo khung thời gian"></div>
+          <div class="rsi-mtf-source">Số lớn: trực tiếp · Chốt: nến đã đóng · ↗ ↘: chiều RSI chốt</div>
+          <div class="rsi-mtf-directions" aria-label="Thiên hướng RSI">
+            <div id="rsiMtfLong">↑ LONG</div><div id="rsiMtfShort">↓ SHORT</div>
+          </div>
+          <div class="rsi-mtf-result" role="status" aria-live="polite" aria-atomic="true">
+            <strong id="rsiMtfSignal">ĐANG TẢI DỮ LIỆU</strong><span id="rsiMtfScore">Điểm xu hướng --</span>
+          </div>
+          <div class="rsi-mtf-meter" aria-hidden="true"><i id="rsiMtfMarker"></i></div>
+          <div class="rsi-mtf-meter-labels"><span>−100 · SHORT</span><span>LONG · +100</span></div>
+          <p id="rsiMtfReason" class="rsi-mtf-reason">Đang lấy nến cho 1M · 1D · 4H · 1H · 15M.</p>
+          <div class="rsi-mtf-source">Tín hiệu RSI độc lập với kế hoạch Entry / SL / TP phía trên.</div>
+          <div id="rsiMtfWarnings" class="rsi-mtf-warnings"></div>
+          <details class="rsi-mtf-details">
+            <summary>Cách tính &amp; điều kiện xác nhận</summary>
+            <p>Điểm và xác nhận chỉ dùng RSI nến đã đóng. Trọng số: 1M (tháng) 10% · 1D 20% · 4H 30% · 1H 25% · 15M 15%.</p>
+            <p>RSI ≥55: +1 · RSI ≤45: −1 · ở giữa: 0. Điểm ≥+35: thiên LONG; ≤−35: thiên SHORT; ở giữa: trung lập. Đây là điểm đồng thuận, không phải xác suất thắng.</p>
+            <p>LONG: thiên LONG, RSI 4H và 1H ≥55, RSI 15M vừa vượt 55. SHORT: thiên SHORT, RSI 4H và 1H ≤45, RSI 15M vừa xuống dưới 45. So sánh hai nến 15M đã đóng; xác nhận có hiệu lực đến nến 15M tiếp theo.</p>
+            <p>Mỗi khung cần ít nhất 16 nến đã đóng để có RSI 14 và giá trị trước đó. Dữ liệu thiếu, cũ hoặc lỗi: CHỜ. Bộ RSI này độc lập với tín hiệu và Entry/SL/TP phía trên; dùng trọng số ngắn hạn trong cả hai chế độ của app.</p>
+            <div id="rsiMtfClosedAt" class="rsi-mtf-closed-at"></div>
+          </details>
+        </section>
 
         <div class="chart-card card">
           <div class="section-title chart-title-row">
@@ -156,6 +182,7 @@
     </section>
   </main>
 
-  <script src="./app.js?v=325" defer></script>
+  <script src="./rsi-mtf.js?v=326" defer></script>
+  <script src="./app.js?v=326" defer></script>
 </body>
 </html>

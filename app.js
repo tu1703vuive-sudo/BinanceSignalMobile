@@ -1,6 +1,7 @@
 'use strict';
 
-const APP_VERSION='3.2.5';
+const APP_VERSION='3.2.6';
+const RSI_MTF_TIMEFRAMES=RsiMtf.FRAMES.map(f=>f.tf);
 const CHART_INDICATOR_VERSION='indicator-settings-v1';
 const DATA_ENGINE_VERSION='integrity-guard-v1';
 const ENGINE_VERSION='short-v2.2';
@@ -70,7 +71,8 @@ const state={
   klineReconnectAttempt:0, tickerReconnectAttempt:0, tickerRenderTimer:null, chartRenderTimer:null, chartRenderQueued:false,
   chartLastRenderAt:0, chartHoverTime:null, analysis:null, deferredPrompt:null, analysisToken:0,
   dataHealth:'syncing', dataHealthDetail:'', integrityResyncTimer:null, integrityResyncKey:null,
-  chartLayers:loadChartLayers(), chartSettingsOpen:false
+  chartLayers:loadChartLayers(), chartSettingsOpen:false,
+  rsiMtfToken:0, rsiMtfLoading:false, rsiMtfError:'', rsiMtfTimer:null
 };
 if(!CHART_TIMEFRAMES.includes(state.chartTf)) state.chartTf='4h';
 const DEFAULT_MODE_VERSION='short-default-v1';
@@ -89,7 +91,10 @@ const els={
   badge:$('signalBadge'), score:$('scoreText'), tf:$('timeframes'), hint:$('planHint'), planTitle:$('inlinePlanTitle'), canvas:$('chartCanvas'), rsiCanvas:$('rsiCanvas'), rsiValue:$('rsiValue'), chartTitle:$('chartTitle'), updated:$('updatedAt'), chartStats:$('chartStats'), chartLive:$('chartLiveBadge'),
   entry:$('entryValue'), sl:$('slValue'), tp1:$('tp1Value'), tp2:$('tp2Value'), tp3:$('tp3Value'), invalid:$('invalidValue'), trigger:$('triggerText'), breakout:$('breakoutText'),
   supports:$('supportList'), resistances:$('resistanceList'), reasons:$('reasonsList'), install:$('installBtn'), tfSelector:$('timeframeSelector'),
-  chartSettingsBtn:$('chartSettingsBtn'), chartSettingsPanel:$('chartSettingsPanel'), rsiPanel:$('rsiPanel'), chartLegend:$('chartLegend')
+  chartSettingsBtn:$('chartSettingsBtn'), chartSettingsPanel:$('chartSettingsPanel'), rsiPanel:$('rsiPanel'), chartLegend:$('chartLegend'),
+  rsiMtf:$('rsiMtf'), rsiMtfGrid:$('rsiMtfGrid'), rsiMtfSymbol:$('rsiMtfSymbol'), rsiMtfSignal:$('rsiMtfSignal'), rsiMtfScore:$('rsiMtfScore'),
+  rsiMtfLong:$('rsiMtfLong'), rsiMtfShort:$('rsiMtfShort'), rsiMtfReason:$('rsiMtfReason'), rsiMtfMarker:$('rsiMtfMarker'),
+  rsiMtfWarnings:$('rsiMtfWarnings'), rsiMtfClosedAt:$('rsiMtfClosedAt')
 };
 
 function persist(){
@@ -538,6 +543,79 @@ function renderDataHealthBadge(){
 }
 function setDataHealth(status,detail=''){
   state.dataHealth=status;state.dataHealthDetail=detail;renderDataHealthBadge();
+  scheduleRsiMtfRender();
+}
+
+// A separate observation panel; never feeds the existing trade-plan engines.
+function scheduleRsiMtfRender(){
+  if(state.rsiMtfTimer)return;
+  state.rsiMtfTimer=setTimeout(()=>{state.rsiMtfTimer=null;renderRsiMtf()},350);
+}
+async function refreshRsiMtf({forceRest=false}={}){
+  const token=++state.rsiMtfToken,symbol=state.selected,market=state.market;
+  state.rsiMtfLoading=true;state.rsiMtfError='';renderRsiMtf();
+  const results=await Promise.allSettled(RSI_MTF_TIMEFRAMES.map(tf=>getKlinesCached(symbol,tf,market,{forceRest})));
+  if(token!==state.rsiMtfToken||symbol!==state.selected||market!==state.market)return;
+  state.rsiMtfLoading=false;
+  const failed=results.flatMap((r,i)=>r.status==='rejected'?[RsiMtf.FRAMES[i].label]:[]);
+  state.rsiMtfError=failed.length?`Không tải được ${failed.join(' / ')}. Bấm ↻ để thử lại.`:'';
+  renderRsiMtf();
+}
+function renderRsiMtf(){
+  if(!els.rsiMtf)return;
+  const now=Date.now(),frames={};
+  for(const f of RsiMtf.FRAMES){
+    const candles=getCachedCandles(state.selected,f.tf,state.market)||[];
+    const last=candles.at(-1),check=inspectCandles(candles,f.tf);
+    frames[f.tf]={...RsiMtf.frame(candles,now),healthy:!!last&&check.ok&&cacheIsFresh(state.selected,f.tf,state.market)&&last.closeTime>=now-15000};
+  }
+  const result=RsiMtf.evaluate(frames);
+  const offline=navigator.onLine===false||state.klineWs?.readyState!==1;
+  const awaitingClose=frames['15m'].ready&&now>=frames['15m'].closedAt+1+15*60*1000;
+  const blocked=state.rsiMtfLoading||!!state.rsiMtfError||offline||awaitingClose||result.missing.length>0;
+  const value=v=>Number.isFinite(v)?v.toFixed(1):'--';
+  const direction=v=>v===1?'bull':v===-1?'bear':'neutral';
+  els.rsiMtfSymbol.textContent=state.selected;
+  els.rsiMtfGrid.innerHTML=RsiMtf.FRAMES.map(f=>{
+    const x=frames[f.tf],cls=direction(RsiMtf.classify(x.live)),label=Number.isFinite(x.live)?cls.toUpperCase():'CHỜ';
+    const arrow=x.slope==null?'·':x.slope>.05?'↗':x.slope<-.05?'↘':'→';
+    return `<div class="rsi-mtf-cell ${cls}${x.healthy?'':' unavailable'}" title="${f.name} · trọng số ${f.weight}%"><span>${f.label}</span><strong>${value(x.live)}</strong><small>${label}</small><em>Chốt ${value(x.confirmed)} ${arrow}</em></div>`;
+  }).join('');
+  els.rsiMtfLong.classList.toggle('active',!blocked&&result.bias===1);
+  els.rsiMtfShort.classList.toggle('active',!blocked&&result.bias===-1);
+  els.rsiMtf.dataset.bias=blocked?'wait':direction(result.bias);
+  els.rsiMtfMarker.hidden=blocked;
+  if(!blocked)els.rsiMtfMarker.style.left=`${(result.score+100)/2}%`;
+  els.rsiMtfScore.textContent=blocked?'Điểm xu hướng --':`Điểm xu hướng ${result.score>0?'+':''}${result.score} / 100`;
+  const labels={'LONG':'LONG XÁC NHẬN','SHORT':'SHORT XÁC NHẬN','WATCH LONG':'THIÊN LONG · CHỜ XÁC NHẬN','WATCH SHORT':'THIÊN SHORT · CHỜ XÁC NHẬN','WAIT':'TRUNG LẬP · CHỜ'};
+  els.rsiMtfSignal.textContent=blocked?(state.rsiMtfLoading?'ĐANG ĐỒNG BỘ · CHỜ':'DỮ LIỆU CHƯA SẴN SÀNG · CHỜ'):labels[result.signal];
+  let reason='';
+  if(blocked){
+    const insufficient=RsiMtf.FRAMES.filter(f=>!frames[f.tf].ready).map(f=>`${f.label}: ${frames[f.tf].closedCount}/16 nến chốt`);
+    const unhealthy=RsiMtf.FRAMES.filter(f=>frames[f.tf].ready&&!frames[f.tf].healthy).map(f=>f.label);
+    reason=state.rsiMtfLoading?'Đang lấy và kiểm tra dữ liệu cho cả 5 khung.':state.rsiMtfError||
+      (insufficient.length?`Chưa đủ lịch sử RSI (${insufficient.join(' · ')}).`:offline?'Đang chờ WebSocket kết nối lại.':awaitingClose?'Đang chờ nến 15M mới đóng được đồng bộ.':`Dữ liệu cũ hoặc lỗi: ${unhealthy.join(' / ')}. Bấm ↻ để đồng bộ.`);
+  }else{
+    const bull=RsiMtf.FRAMES.filter(f=>RsiMtf.classify(frames[f.tf].confirmed)===1).map(f=>f.label);
+    const bear=RsiMtf.FRAMES.filter(f=>RsiMtf.classify(frames[f.tf].confirmed)===-1).map(f=>f.label);
+    const parts=[];
+    if(bull.length)parts.push(`Nghiêng tăng: ${bull.join(' / ')}`);
+    if(bear.length)parts.push(`Nghiêng giảm: ${bear.join(' / ')}`);
+    reason=parts.length?`${parts.join('. ')}. `:'Cả 5 khung đang ở vùng trung lập. ';
+    if(result.bias){
+      const long=result.bias===1,limit=long?55:45,sign=long?'≥':'≤';
+      const pending=['4h','1h'].filter(tf=>long?frames[tf].confirmed<55:frames[tf].confirmed>45).map(tf=>`${tf.toUpperCase()} ${sign}${limit}`);
+      if(!(long?result.crossLong:result.crossShort))pending.push(`15M ${long?'vượt 55':'xuống dưới 45'} trên nến đóng`);
+      reason+=pending.length?`Còn chờ: ${pending.join('; ')}.`:'4H, 1H đồng thuận và 15M đã cắt ngưỡng xác nhận.';
+    }else reason+='Chưa đạt điểm đồng thuận ±35.';
+  }
+  els.rsiMtfReason.textContent=reason;
+  const warnings=RsiMtf.FRAMES.filter(f=>Number.isFinite(frames[f.tf].confirmed)&&(frames[f.tf].confirmed<=30||frames[f.tf].confirmed>=70))
+    .map(f=>`${f.label} ${value(frames[f.tf].confirmed)}: ${frames[f.tf].confirmed<=30?'quá bán':'quá mua'}`);
+  els.rsiMtfWarnings.textContent=warnings.length?`RSI chốt · ${warnings.join(' · ')}. Cảnh báo cực trị, chưa tự xác nhận đảo chiều.`:'';
+  const stamp=t=>new Date(t).toLocaleString('vi-VN');
+  els.rsiMtfClosedAt.textContent=RsiMtf.FRAMES.map(f=>`${f.label}: ${frames[f.tf].closedAt?stamp(frames[f.tf].closedAt+1):'chưa có nến chốt'}`).join(' · ');
+  if(!blocked&&(result.signal==='LONG'||result.signal==='SHORT'))els.rsiMtfClosedAt.textContent+=` · Xác nhận 15M có hiệu lực đến ${stamp(frames['15m'].closedAt+1+15*60*1000)}.`;
 }
 function updateCachedCandle(symbol,interval,candle,market=state.market){
   let key=candleCacheKey(symbol,interval,market),arr=state.candleCache.get(key);
@@ -600,6 +678,7 @@ function scheduleIntegrityResync(symbol,interval,market=state.market,reason='D�
       await getKlinesCached(symbol,interval,market,{forceRest:true});
       let check=cacheIntegrity(symbol,interval,market);
       if(check&&!check.ok)throw new Error(`Resync ${interval} vẫn thiếu dữ liệu`);
+      if(RSI_MTF_TIMEFRAMES.includes(interval))scheduleRsiMtfRender();
       if((ANALYSIS_TIMEFRAMES[state.mode]||[]).includes(interval))await analyzeSelected({forceRest:false,source:'integrity-resync'});
       else if(state.chartTf===interval){state.candles[interval]=getCachedCandles(symbol,interval,market);scheduleChartRender(true)}
       if(state.klineWs?.readyState===1)setDataHealth('live','Dữ liệu đã đồng bộ');else setDataHealth('syncing','Đã đồng bộ cache, đang chờ WebSocket');
@@ -661,6 +740,7 @@ function applyLiveKline(interval,candle,symbol=state.selected,market=state.marke
   if(symbol===state.selected&&market===state.market)state.liveKlines[interval]=candle;
   updateCachedCandle(symbol,interval,candle,market);
   if(interval===state.chartTf&&symbol===state.selected&&market===state.market)scheduleChartRender();
+  if(RSI_MTF_TIMEFRAMES.includes(interval)&&symbol===state.selected&&market===state.market)scheduleRsiMtfRender();
 }
 function connectKlines(){
   if(state.klineReconnectTimer){clearTimeout(state.klineReconnectTimer);state.klineReconnectTimer=null}
@@ -787,6 +867,7 @@ async function setChartTimeframe(tf){
 }
 async function analyzeSelected({forceRest=false,source='ui'}={}){
   const token=++state.analysisToken,requestMarket=state.market,requestSymbol=state.selected,requestMode=state.mode,requestChartTf=state.chartTf;
+  refreshRsiMtf({forceRest});
   renderSelectedTicker();if(source!=='closed-kline')els.hint.textContent=`Đang tải Binance ${marketLabel(requestMarket)} và phân tích...`;els.refresh.disabled=true;
   if(source==='ws-resync'||source==='resume'||source==='online'||source==='integrity-resync')setDataHealth('resyncing','Đang kiểm tra và đồng bộ dữ liệu nến');
   else if(source!=='closed-kline')setDataHealth('syncing','Đang kiểm tra dữ liệu');
@@ -995,12 +1076,14 @@ document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState!=='visible')return;
   if(!state.ws||state.ws.readyState>=2)connectTicker();
   if(!state.klineWs||state.klineWs.readyState>=2)connectKlines();
-  let intervals=[...new Set([...(ANALYSIS_TIMEFRAMES[state.mode]||ANALYSIS_TIMEFRAMES.short),state.chartTf])];
+  let intervals=[...new Set([...(ANALYSIS_TIMEFRAMES[state.mode]||ANALYSIS_TIMEFRAMES.short),state.chartTf,...RSI_MTF_TIMEFRAMES])];
   let stale=intervals.some(tf=>!cacheIsFresh(state.selected,tf,state.market));
   if(stale){setDataHealth('resyncing','Tab vừa hoạt động lại, đang kiểm tra nến bị bỏ lỡ');setTimeout(()=>analyzeSelected({forceRest:true,source:'resume'}),120)}
   else setDataHealth(state.klineWs?.readyState===1?'live':'syncing','Cache vẫn còn mới');
 });
 window.addEventListener('online',()=>{setDataHealth('resyncing','Mạng đã trở lại, đang đồng bộ dữ liệu');connectTicker();connectKlines();setTimeout(()=>analyzeSelected({forceRest:true,source:'online'}),150)});
+// Refresh freshness/expiry even when no WebSocket tick arrives. No REST polling.
+setInterval(()=>{if(document.visibilityState==='visible')scheduleRsiMtfRender()},15000);
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.deferredPrompt=e;els.install.classList.remove('hidden')});els.install.onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;els.install.classList.add('hidden')}};
 if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{let r=await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'});await r.update()}catch{}});
 
@@ -1009,6 +1092,7 @@ if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{let
   if(state.mode==='short') state.chartTf='4h';
   els.swing.classList.toggle('active',state.mode==='swing');els.short.classList.toggle('active',state.mode==='short');
   updateTimeframeButtons();syncChartSettingsUI();renderWatchlist();renderSelectedTicker();setDataHealth('syncing','Đang khởi tạo dữ liệu');connectTicker();connectKlines();
+  renderRsiMtf();
   try{let t=await validateSymbol(state.selected,state.market);state.tickers.set(state.selected,{price:t.price,change:t.change});renderWatchlist();renderSelectedTicker()}catch{}
   analyzeSelected();
 })();

@@ -632,3 +632,45 @@ h1{
   letter-spacing:.10em;
 }
 .mode-caption{margin-top:0}
+
+/* RSI 5 frames — Momentum, independently confirmed on closed candles. */
+.rsi-mtf{padding:13px;background:linear-gradient(160deg,#111d28,#0c141d)}
+.rsi-mtf .section-title{margin-bottom:8px}
+.rsi-mtf-mode{border:1px solid rgba(25,230,162,.38);border-radius:7px;background:rgba(25,230,162,.10);color:var(--green);padding:5px 10px;font-size:10px}
+.rsi-mtf-caption{display:flex;justify-content:space-between;gap:8px;margin-bottom:10px;color:var(--muted);font-size:9px}
+.rsi-mtf-caption>span:first-child{color:#cbd8e8;font-weight:800}
+.rsi-mtf-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
+.rsi-mtf-cell{display:flex;min-width:0;flex-direction:column;align-items:center;gap:5px;padding:10px 1px 8px;border:1px solid #25374a;border-radius:9px;background:#14202c;font-variant-numeric:tabular-nums}
+.rsi-mtf-cell>span{font-size:9px;color:#9bb0ca;font-weight:800}
+.rsi-mtf-cell strong{font-size:16px;color:var(--accent);line-height:1.2}
+.rsi-mtf-cell small{font-size:8px;color:#9bb0ca}
+.rsi-mtf-cell em{font-size:8px;font-style:normal;color:#91a4b9;white-space:nowrap}
+.rsi-mtf-cell.bull strong{color:var(--green)}
+.rsi-mtf-cell.bear strong{color:var(--red)}
+.rsi-mtf-cell.unavailable{border-style:dashed;opacity:.65}
+.rsi-mtf-source{margin-top:8px;color:#8a9eb5;font-size:8px;line-height:1.5}
+.rsi-mtf-directions{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:12px;padding:3px;border:1px solid #26394c;border-radius:9px;background:#0b141d}
+.rsi-mtf-directions>div{text-align:center;padding:10px 2px;border-radius:6px;color:#8299b3;font-size:12px;font-weight:900}
+#rsiMtfLong.active{background:rgba(25,230,162,.18);color:var(--green)}
+#rsiMtfShort.active{background:rgba(255,91,120,.16);color:var(--red)}
+.rsi-mtf-result{display:flex;flex-direction:column;gap:5px;margin-top:12px}
+.rsi-mtf-result>strong{color:#d1deed;font-size:11px;line-height:1.4}
+.rsi-mtf-result>span{color:var(--muted);font-size:10px;font-variant-numeric:tabular-nums}
+.rsi-mtf[data-bias="bull"] .rsi-mtf-result>strong{color:var(--green)}
+.rsi-mtf[data-bias="bear"] .rsi-mtf-result>strong{color:var(--red)}
+.rsi-mtf-meter{position:relative;height:5px;margin:13px 5px 6px;border-radius:99px;background:linear-gradient(90deg,#b83b56,#574246 32.5%,#344255 32.5%,#344255 67.5%,#285b50 67.5%,#13a578)}
+.rsi-mtf-meter>i{position:absolute;top:-3px;left:50%;width:3px;height:11px;transform:translateX(-50%);background:#e8f2ff;border-radius:2px;transition:left .2s ease}
+.rsi-mtf-meter-labels{display:flex;justify-content:space-between;font-size:8px;color:#8398af}
+.rsi-mtf-reason{margin:10px 0 0;color:#b9c9dd;font-size:10px;line-height:1.6;overflow-wrap:anywhere}
+.rsi-mtf-warnings{margin-top:8px;color:#e3bd71;font-size:9px;line-height:1.5}
+.rsi-mtf-warnings:empty{display:none}
+.rsi-mtf-details{margin-top:11px;padding-top:10px;border-top:1px solid #253449;color:#91a6be;font-size:9px;line-height:1.6}
+.rsi-mtf-details summary{cursor:pointer;color:#a5bbd3;font-size:10px;min-height:24px}
+.rsi-mtf-details p{margin:7px 0}
+.rsi-mtf-closed-at{font-size:8px;color:#839ab2;overflow-wrap:anywhere}
+@media(max-width:359px){
+  .rsi-mtf{padding:10px}
+  .rsi-mtf-grid{gap:3px}
+  .rsi-mtf-cell strong{font-size:14px}
+  .rsi-mtf-cell em{font-size:7px}
+}
