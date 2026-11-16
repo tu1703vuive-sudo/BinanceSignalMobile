@@ -1,5 +1,5 @@
-const CACHE='binance-signal-v3-2-6-rsi-momentum';
-const ASSETS=['./','./index.html','./styles.css?v=326','./rsi-mtf.js?v=326','./app.js?v=326','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE='binance-signal-v3-2-7-auto-paper';
+const ASSETS=['./','./index.html','./styles.css?v=327','./rsi-mtf.js?v=327','./paper-trading.js?v=327','./paper-ui.js?v=327','./app.js?v=327','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 
 self.addEventListener('install',e=>e.waitUntil(
   caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())
@@ -42,4 +42,14 @@ self.addEventListener('fetch',e=>{
       })
       .catch(()=>caches.match(e.request))
   );
+});
+
+self.addEventListener('notificationclick',e=>{
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(async windows=>{
+    const url=new URL('./',self.registration.scope).href;
+    const client=windows.find(c=>c.url.startsWith(self.registration.scope));
+    if(client)return client.focus();
+    return self.clients.openWindow(url);
+  }));
 });

@@ -1,3 +1,17 @@
+# v3.2.7 — RSI Auto Paper
+
+Thêm **tự vào lệnh giả lập** khi RSI 5 khung xác nhận mới, kèm TP/SL, vốn ảo, phí/trượt giá, thông báo mở/đóng lệnh, lịch sử chi tiết và xuất CSV/JSON. Mặc định tự mở lệnh tắt; mỗi lần mở lại trang cần bật lại. Không kết nối tài khoản hay đặt lệnh thật.
+
+Mặc định: vốn ảo 10.000 USDT, mỗi lệnh 100 USDT, SL 1%, TP 2%, phí mỗi chiều 0,05%, trượt giá 0,02%, tối đa 1 lệnh. Các mức này chỉnh được và chưa được backtest.
+
+Cập nhật đủ **index.html, app.js, styles.css, sw.js, rsi-mtf.js, paper-trading.js, paper-ui.js**. Hướng dẫn: [DEPLOY_v3.2.7.md](DEPLOY_v3.2.7.md).
+
+Giữ nguyên công thức Short/Swing và kế hoạch giao dịch gốc. Bộ paper dùng tín hiệu RSI độc lập. Bot chỉ chạy khi trình duyệt thực thi trang; lịch sử lưu trên cùng trình duyệt/địa chỉ website.
+
+Các ghi chú bên dưới là lịch sử phiên bản.
+
+---
+
 # v3.2.6 — RSI Momentum 5 khung
 
 Thêm bảng RSI 14 của **1M (tháng) · 1D · 4H · 1H · 15M** ngay trên biểu đồ. RSI trực tiếp để quan sát; điểm xu hướng và xác nhận dùng nến đã đóng. Có THIÊN LONG / THIÊN SHORT / TRUNG LẬP và điều kiện còn thiếu.

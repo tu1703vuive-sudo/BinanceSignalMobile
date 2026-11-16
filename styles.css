@@ -633,6 +633,32 @@ h1{
 }
 .mode-caption{margin-top:0}
 
+/* Paper wallet, order state and journal. */
+.paper-panel{padding:13px;border-color:#294a49;background:linear-gradient(150deg,#122325,#0c151d)}
+.paper-badge{font-size:7px;letter-spacing:.04em;color:#8dd9c7;border:1px solid #2a514c;border-radius:6px;padding:5px 6px}
+.paper-auto-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:45px;cursor:pointer}
+.paper-auto-row>span{display:flex;flex-direction:column;gap:5px}.paper-auto-row b{font-size:13px}.paper-auto-row small{font-size:9px;color:var(--muted);line-height:1.4}
+.paper-auto-row input{width:22px;height:22px;accent-color:var(--green);flex-shrink:0}
+.paper-status{margin:9px 0 12px;font-size:10px;color:#8fb6ae;line-height:1.5;overflow-wrap:anywhere;min-height:15px}
+.paper-status.paper-error{color:#ffacba}
+.paper-wallet{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px;border:1px solid #284149;border-radius:11px;background:#0a151b}
+.paper-wallet>div:first-child{grid-column:1/-1}.paper-wallet span{display:block;font-size:9px;color:var(--muted);margin-bottom:5px}.paper-wallet strong{font-size:23px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.paper-wallet b{font-size:12px;font-variant-numeric:tabular-nums}.paper-wallet small{grid-column:1/-1;color:var(--muted);font-size:9px}
+.paper-open{margin-top:10px;padding:11px;border:1px solid #29404c;border-radius:10px;background:#0b141d}
+.paper-empty{font-size:10px;color:var(--muted);line-height:1.6}
+.paper-position-title{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:12px}.paper-position-title strong{font-size:12px}.paper-position-title>span{font-size:8px;color:#8ca4bb}
+.paper-position-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0}.paper-position-grid>div{min-width:0}.paper-position-grid span{font-size:9px;color:var(--muted);display:block;margin-bottom:4px}.paper-position-grid b{font-size:11px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.paper-open p,.paper-history-item p,.paper-settings p{font-size:9px;color:#91a6bc;line-height:1.6;overflow-wrap:anywhere;margin:8px 0}
+.paper-open details{font-size:9px;margin:10px 0;color:#a5bbd3}.paper-open summary{cursor:pointer;min-height:24px}
+.paper-actions{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:10px}.paper-actions label{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:#afc4d2}.paper-actions input{accent-color:var(--green)}
+.paper-small-btn{min-height:34px;padding:7px 10px;border:1px solid #2d4b54;border-radius:8px;background:#112630;color:#9adbcf;font-size:10px;font-weight:750;line-height:1.4}
+.paper-small-btn:hover{border-color:#3a8d7e}.paper-small-btn:focus-visible,.paper-auto-row input:focus-visible{outline:2px solid #53d5b7;outline-offset:2px}
+.paper-settings,.paper-history{margin-top:13px;padding-top:12px;border-top:1px solid #263c48;font-size:11px;color:#b6cbdc}.paper-settings>summary,.paper-history>summary{min-height:28px;cursor:pointer}
+.paper-form{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:10px 0}.paper-form label{font-size:9px;color:#9eb6c9;min-width:0}.paper-form input{margin-top:6px;width:100%;min-width:0;min-height:38px;border:1px solid #294351;border-radius:8px;background:#09151e;color:#e4f5f0;padding:7px;font-size:13px}.paper-form input:disabled{opacity:.55}
+.paper-history-item{padding:9px;margin-top:7px;border:1px solid #273e4a;border-radius:8px;background:#0a151e;font-size:10px}.paper-history-item>summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;line-height:1.5}.paper-history-item>summary span{min-width:0;overflow-wrap:anywhere}.paper-history-item>summary b{white-space:nowrap;font-variant-numeric:tabular-nums}
+.paper-note{margin:11px 0 0;font-size:8px;color:#839caf;line-height:1.6}
+.paper-toast{margin-top:12px;padding:10px;border:1px solid #3b796c;border-radius:9px;background:#11302b;color:#bcf7df;font-size:10px;line-height:1.6;overflow-wrap:anywhere}
+.paper-panel [hidden]{display:none!important}
+
 /* RSI 5 frames — Momentum, independently confirmed on closed candles. */
 .rsi-mtf{padding:13px;background:linear-gradient(160deg,#111d28,#0c141d)}
 .rsi-mtf .section-title{margin-bottom:8px}

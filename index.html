@@ -10,7 +10,7 @@
   <title>Binance Signal</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <link rel="stylesheet" href="./styles.css?v=326" />
+  <link rel="stylesheet" href="./styles.css?v=327" />
 </head>
 <body>
   <header class="topbar">
@@ -105,6 +105,32 @@
           </details>
         </section>
 
+        <section id="paperPanel" class="paper-panel card" aria-labelledby="paperTitle">
+          <div class="section-title"><span id="paperTitle">PAPER TRADING</span><span class="paper-badge">VỐN ẢO · RSI 5 KHUNG</span></div>
+          <label class="paper-auto-row"><span><b>Tự vào lệnh giả</b><small id="paperTarget">Theo dõi coin đang chọn · tối đa 1 lệnh mở</small></span><input id="paperAuto" type="checkbox" role="switch" /></label>
+          <p id="paperStatus" class="paper-status" role="status">Tự vào lệnh đang TẮT.</p>
+          <div class="paper-wallet"><div><span>Tổng vốn ước tính · USDT</span><strong id="paperEquity">10,000.00</strong></div><div><span>Số dư khả dụng</span><b id="paperCash">10,000.00</b></div><div><span>Lãi/lỗ đã chốt</span><b id="paperRealized">0.00</b></div><small id="paperCount">0 lệnh đóng</small></div>
+          <div id="paperOpen" class="paper-open"></div>
+          <div class="paper-actions"><button id="paperNotify" type="button" class="paper-small-btn">Bật thông báo thiết bị</button><label><input id="paperSound" type="checkbox" /> Âm thanh</label><button id="paperRetry" type="button" class="paper-small-btn" hidden>Thử đồng bộ lại</button></div>
+          <details class="paper-settings"><summary>Cấu hình vốn &amp; TP/SL</summary>
+            <div class="paper-form">
+              <label>Vốn ban đầu · USDT<input id="paper-initialCapital" type="number" min="10" max="1000000000" step="1" /></label>
+              <label>Giá trị mỗi lệnh · USDT<input id="paper-notional" type="number" min="1" max="1000000000" step="1" /></label>
+              <label>Stop Loss · %<input id="paper-slPct" type="number" min="0.1" max="20" step="0.1" /></label>
+              <label>Take Profit · %<input id="paper-tpPct" type="number" min="0.1" max="99.9" step="0.1" /></label>
+              <label>Phí mỗi chiều · %<input id="paper-feePct" type="number" min="0" max="1" step="0.01" /></label>
+              <label>Trượt giá · %<input id="paper-slippagePct" type="number" min="0" max="1" step="0.01" /></label>
+            </div>
+            <button id="paperSave" type="button" class="paper-small-btn">Lưu cho lệnh tiếp theo</button>
+            <p>Giả lập 1×, không gửi lệnh Binance. TP/SL tính từ giá khớp giả, độc lập kế hoạch giao dịch phía trên. Vốn ban đầu khóa sau lệnh đầu tiên; cấu hình mới không sửa lệnh đang mở.</p>
+          </details>
+          <details class="paper-history"><summary>Lịch sử lệnh <span id="paperHistoryCount">0</span></summary><div id="paperHistory"></div><button id="paperMore" type="button" class="paper-small-btn" hidden>Xem thêm 20 lệnh</button></details>
+          <div class="paper-actions"><button id="paperCsv" type="button" class="paper-small-btn">Xuất lịch sử CSV</button><button id="paperBackup" type="button" class="paper-small-btn">Sao lưu JSON</button></div>
+          <p class="paper-note">Chỉ mở lệnh mới khi tab đang hiện và có dữ liệu trực tiếp. Mỗi lần mở lại app cần bật lại tự vào lệnh. Khi đóng app, bot dừng; lần mở sau kiểm tra TP/SL bằng nến 1 phút. Cùng nến chạm cả TP và SL: tính SL trước. Phần nến trước thời điểm vào lệnh hoặc tick đã quan sát không được dùng lại.</p>
+          <p class="paper-note">Lịch sử lưu trên trình duyệt và địa chỉ website này. Sao lưu trước khi đổi thiết bị, đổi địa chỉ hoặc xóa dữ liệu web. Thông báo thiết bị cần được cấp quyền; âm thanh phụ thuộc trình duyệt.</p>
+          <div id="paperToast" class="paper-toast" role="status" aria-live="polite" hidden></div>
+        </section>
+
         <div class="chart-card card">
           <div class="section-title chart-title-row">
             <span id="chartTitle">Biểu đồ</span>
@@ -182,7 +208,9 @@
     </section>
   </main>
 
-  <script src="./rsi-mtf.js?v=326" defer></script>
-  <script src="./app.js?v=326" defer></script>
+  <script src="./rsi-mtf.js?v=327" defer></script>
+  <script src="./paper-trading.js?v=327" defer></script>
+  <script src="./paper-ui.js?v=327" defer></script>
+  <script src="./app.js?v=327" defer></script>
 </body>
 </html>
