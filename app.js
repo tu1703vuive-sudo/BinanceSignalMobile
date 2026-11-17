@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='3.6.0';
+const APP_VERSION='3.7.0';
 const RSI_MTF_TIMEFRAMES=RsiMtf.FRAMES.map(f=>f.tf);
 const CHART_INDICATOR_VERSION='indicator-settings-v1';
 const DATA_ENGINE_VERSION='integrity-guard-v1';
@@ -25,21 +25,12 @@ const SHORT_STRATEGY=Object.freeze({
   minRR:1.5
 });
 
-const MARKET_CONFIG={
-  spot:{label:'SPOT',apiBases:['https://data-api.binance.vision'],wsBase:'wss://data-stream.binance.vision/stream?streams=',klinesPath:'/api/v3/klines',ticker24Path:'/api/v3/ticker/24hr'},
-  futures:{
-    label:'FUTURES',
-    apiBases:['https://fapi.binance.com'],
-    wsBase:'wss://fstream.binance.com/market/stream?streams=',
-    klinesPath:'/fapi/v1/klines',
-    ticker24Path:'/fapi/v1/ticker/24hr'
-  }
-};
+const MARKET_CONFIG={okx:{label:'OKX SPOT'}};
 const DEFAULT_SYMBOLS=['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT'];
 const CHART_TIMEFRAMES=['15m','1h','4h','12h','1d','1w','1M'];
 const ANALYSIS_TIMEFRAMES={swing:['1M','1w','1d','12h','4h'],short:[...SHORT_STRATEGY.timeframes]};
 const storedMode=localStorage.getItem('bsm_mode')||'short';
-const storedMarket='spot';
+const storedMarket='okx';
 
 function safeJson(value,fallback){try{let x=JSON.parse(value);return x??fallback}catch{return fallback}}
 function marketStoreKey(name,market){return `bsm_${name}_${market}`}
@@ -50,9 +41,9 @@ function loadMarketData(market){
   if(!symbols.includes(selected))selected=symbols[0]||'BTCUSDT';
   return{symbols:[...new Set(symbols)],favorites:new Set(favorites),selected};
 }
-const initialMarket='spot';
-const hasSpotPreferences=localStorage.getItem(marketStoreKey('symbols','spot'))!==null;
-const initialMarketData=loadMarketData(hasSpotPreferences?'spot':'futures');
+const initialMarket='okx';
+const preferenceMarket=['okx','spot','futures'].find(m=>localStorage.getItem(marketStoreKey('symbols',m))!==null)||'okx';
+const initialMarketData=loadMarketData(preferenceMarket);
 const DEFAULT_CHART_LAYERS=Object.freeze({rsi:false,volume:true,sr:false,trade:false,crosshair:true});
 function loadChartLayers(){
   try{
@@ -61,7 +52,7 @@ function loadChartLayers(){
   }catch{return {...DEFAULT_CHART_LAYERS}}
 }
 const state={
-  market:'spot',
+  market:'okx',
   mode:storedMode,
   chartTf:localStorage.getItem('bsm_chart_tf')||'4h',
   symbols:initialMarketData.symbols,
@@ -109,16 +100,16 @@ const paperUi=PaperUI.create({
 });
 
 function persist(){
-  localStorage.setItem('bsm_market','spot');
+  localStorage.setItem('bsm_market','okx');
   localStorage.setItem('bsm_mode',state.mode);
   localStorage.setItem('bsm_chart_tf',state.chartTf);
   localStorage.setItem('bsm_chart_layers',JSON.stringify(state.chartLayers));
-  localStorage.setItem(marketStoreKey('symbols','spot'),JSON.stringify(state.symbols));
-  localStorage.setItem(marketStoreKey('favorites','spot'),JSON.stringify([...state.favorites]));
-  localStorage.setItem(marketStoreKey('selected','spot'),state.selected);
+  localStorage.setItem(marketStoreKey('symbols','okx'),JSON.stringify(state.symbols));
+  localStorage.setItem(marketStoreKey('favorites','okx'),JSON.stringify([...state.favorites]));
+  localStorage.setItem(marketStoreKey('selected','okx'),state.selected);
 }
-function marketCfg(market='spot'){return MARKET_CONFIG[market]||MARKET_CONFIG.spot}
-function marketLabel(market='spot'){return marketCfg(market).label}
+function marketCfg(market='okx'){return MARKET_CONFIG[market]||MARKET_CONFIG.okx}
+function marketLabel(market='okx'){return marketCfg(market).label}
 function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
 function avg(arr){return arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:0;}
 function fmt(n){ if(n==null||!Number.isFinite(n)) return '--'; const a=Math.abs(n); let d=a>=1000?2:a>=1?4:a>=.01?6:8; return n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:d}); }
@@ -729,47 +720,21 @@ function scheduleIntegrityResync(symbol,interval,market=state.market,reason='D�
   },260);
 }
 
-async function apiFetch(path,market=state.market){
-  let last,cfg=marketCfg(market);
-  for(let base of cfg.apiBases){
-    for(let attempt=1;attempt<=REST_MAX_ATTEMPTS;attempt++){
-      let controller=new AbortController(),timer=setTimeout(()=>controller.abort(),REST_TIMEOUT_MS);
-      try{
-        let r=await fetch(base+path,{cache:'no-store',signal:controller.signal});
-        clearTimeout(timer);
-        if(r.ok)return await r.json();
-        let retryable=r.status===408||r.status===418||r.status===429||r.status>=500;
-        let err=new Error(`HTTP ${r.status}`);err.status=r.status;last=err;
-        if(!retryable)throw err;
-        let retryAfter=Number(r.headers.get('Retry-After'));
-        if(attempt<REST_MAX_ATTEMPTS)await sleep(Number.isFinite(retryAfter)&&retryAfter>0?retryAfter*1000:REST_RETRY_BASE_MS*Math.pow(2,attempt-1));
-      }catch(e){
-        clearTimeout(timer);last=e;
-        if(e?.status&&!([408,418,429].includes(e.status)||e.status>=500))throw e;
-        if(attempt<REST_MAX_ATTEMPTS)await sleep(REST_RETRY_BASE_MS*Math.pow(2,attempt-1));
-      }
-    }
-  }
-  throw last||new Error(`Không kết nối được Binance ${marketLabel(market)}`);
-}
 async function getKlines(symbol,interval,limit=260,market=state.market){
-  let cfg=marketCfg(market);
-  let rows=await apiFetch(`${cfg.klinesPath}?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`,market);
+  const rows=await MarketData.request(MarketData.candlesPath(symbol,interval,{limit}));
   return rows.map(r=>({openTime:+r[0],open:+r[1],high:+r[2],low:+r[3],close:+r[4],volume:+r[5],closeTime:+r[6]}));
 }
 async function getPaperExitQuote(symbol,source=PaperTrading.PRICE_SOURCE){
-  const legacy=source===PaperTrading.LEGACY_SOURCE,market=legacy?'futures':'spot';
-  const path=legacy?'/fapi/v1/ticker/price':'/api/v3/ticker/24hr';
-  const q=await apiFetch(path+'?symbol='+encodeURIComponent(symbol),market),price=+(legacy?q.price:q.lastPrice),time=+(legacy?q.time:q.closeTime),now=Date.now();
-  if(!Number.isFinite(price)||price<=0||!Number.isFinite(time)||now-time>10000||time-now>5000)throw new Error('Chưa có giá mới đúng nguồn để đóng lệnh');
-  return {price,at:now,priceSource:source};
+  const q=await MarketData.request(MarketData.quotePath(symbol,source),{source});
+  const {price}=MarketData.quote(q,source,Date.now());
+  return {price,at:Date.now(),priceSource:source};
 }
 async function getPaperRecoveryCandles(symbol,since,until,priceSource=PaperTrading.PRICE_SOURCE){
-  const market=priceSource===PaperTrading.LEGACY_SOURCE?'futures':'spot';
   let cursor=Math.floor(since/60000)*60000,end=Math.floor(until/60000)*60000,out=[];
   // Only this exceptional resume path fetches one-minute history for the open trade.
   for(let page=0;cursor<end&&page<100;page++){
-    const rows=await apiFetch(`${marketCfg(market).klinesPath}?symbol=${encodeURIComponent(symbol)}&interval=1m&startTime=${cursor}&endTime=${end-1}&limit=1000`,market);
+    const pageEnd=Math.min(end,cursor+1000*60000);
+    const rows=await MarketData.request(MarketData.candlesPath(symbol,'1m',{startTime:cursor,endTime:pageEnd-1,limit:1000},priceSource),{source:priceSource});
     if(!Array.isArray(rows)||!rows.length)throw new Error('Thiếu nến 1 phút trong khoảng cần kiểm tra');
     const candles=rows.map(r=>({openTime:+r[0],open:+r[1],high:+r[2],low:+r[3],close:+r[4],volume:+r[5],closeTime:+r[6]}));
     for(const c of candles){
@@ -808,15 +773,21 @@ function applyLiveKline(interval,candle,symbol=state.selected,market=state.marke
   if(interval===state.chartTf&&symbol===state.selected&&market===state.market)scheduleChartRender();
   if(RSI_MTF_TIMEFRAMES.includes(interval)&&symbol===state.selected&&market===state.market)scheduleRsiMtfRender();
 }
+function socketKeepalive(ws){
+  let received=Date.now();
+  const timer=setInterval(()=>{if(ws.readyState!==1){clearInterval(timer);return}if(Date.now()-received>30000){ws.close();clearInterval(timer)}else if(Date.now()-received>15000)ws.send('ping')},5000);
+  return {touch:()=>{received=Date.now()},stop:()=>clearInterval(timer)};
+}
 function connectKlines(){
   if(state.klineReconnectTimer){clearTimeout(state.klineReconnectTimer);state.klineReconnectTimer=null}
   if(state.klineWs){try{state.klineWs.onclose=null;state.klineWs.close()}catch{}state.klineWs=null}
   let symbol=(state.selected||'').toLowerCase();if(!symbol)return;
-  let marketAtConnect=state.market,selectedAtConnect=state.selected,cfg=marketCfg(marketAtConnect);
-  let streams=[...new Set([...CHART_TIMEFRAMES.map(tf=>`${symbol}@kline_${tf}`),...(paperUi?.localActive()?RSI_MTF_TIMEFRAMES.map(tf=>`btcusdt@kline_${tf}`):[])])].join('/');
-  let ws=new WebSocket(cfg.wsBase+streams);state.klineWs=ws;
+  let marketAtConnect=state.market,selectedAtConnect=state.selected;
+  const args=[...new Map([...CHART_TIMEFRAMES.map(tf=>({channel:'candle'+MarketData.BARS[tf],instId:MarketData.instrument(selectedAtConnect)})),...(paperUi?.localActive()?RSI_MTF_TIMEFRAMES.map(tf=>({channel:'candle'+MarketData.BARS[tf],instId:'BTC-USDT'})):[])].map(x=>[x.instId+':'+x.channel,x])).values()];
+  let ws=new WebSocket(MarketData.WS_BUSINESS);state.klineWs=ws;const keep=socketKeepalive(ws);
   ws.onopen=()=>{
     if(state.klineWs!==ws)return;
+    ws.send(JSON.stringify({op:'subscribe',args}));
     let wasReconnect=state.klineReconnectAttempt>0;state.klineReconnectAttempt=0;
     void refreshPaperBtc({forceRest:wasReconnect});
     if(wasReconnect){setDataHealth('resyncing','WebSocket vừa kết nối lại, đang đối chiếu REST');setTimeout(()=>{if(state.klineWs===ws&&state.selected===selectedAtConnect)analyzeSelected({forceRest:true,source:'ws-resync'})},300)}
@@ -824,11 +795,14 @@ function connectKlines(){
   };
   ws.onmessage=e=>{try{
     if(state.market!==marketAtConnect||state.selected!==selectedAtConnect)return;
-    let payload=JSON.parse(e.data),d=payload.data||payload,k=d.k;if(!k||!(d.s===selectedAtConnect||d.s===PaperTrading.PAPER_SYMBOL&&paperUi?.localActive()))return;
+    keep.touch();if(e.data==='pong')return;
+    const payload=JSON.parse(e.data);if(payload.event==='error'){setDataHealth('stale','OKX WebSocket: '+(payload.msg||payload.code));ws.close();return}
+    for(const d of MarketData.klineMessage(payload)){
+    let k=d.k;if(!k||!(d.s===selectedAtConnect||d.s===PaperTrading.PAPER_SYMBOL&&paperUi?.localActive()))continue;
     const candleSymbol=d.s;
     let candle={openTime:+k.t,open:+k.o,high:+k.h,low:+k.l,close:+k.c,volume:+k.v,closeTime:+k.T};
     applyLiveKline(k.i,candle,candleSymbol,marketAtConnect);
-    if(k.i==='15m')paperUi?.onQuote(candleSymbol,candle.close,Number.isFinite(+d.E)?+d.E:Date.now());
+    // Candle messages have no quote timestamp. Only the timestamped ticker may execute paper trades.
     if(candleSymbol===PaperTrading.PAPER_SYMBOL){schedulePaperBtcSignal();if(cacheIntegrity(candleSymbol,k.i,marketAtConnect)?.ok===false)scheduleIntegrityResync(candleSymbol,k.i,marketAtConnect)}
     if(candleSymbol===selectedAtConnect&&k.i===state.chartTf){
       let t=state.tickers.get(state.selected)||{};state.tickers.set(state.selected,{price:candle.close,change:t.change||0});renderSelectedTicker();
@@ -837,8 +811,10 @@ function connectKlines(){
       clearTimeout(connectKlines._analysisTimer);
       connectKlines._analysisTimer=setTimeout(()=>analyzeSelected({forceRest:false,source:'closed-kline'}),180);
     }
+    }
   }catch{}};
   ws.onclose=()=>{
+    keep.stop();
     if(state.klineWs!==ws)return;
     setDataHealth('stale','WebSocket kline bị ngắt, đang chờ kết nối lại');
     state.klineReconnectAttempt++;
@@ -847,26 +823,31 @@ function connectKlines(){
   ws.onerror=()=>{};
 }
 async function validateSymbol(s,market=state.market){
-  let cfg=marketCfg(market);
-  let j=await apiFetch(`${cfg.ticker24Path}?symbol=${encodeURIComponent(s)}`,market);
-  return{symbol:s,price:+j.lastPrice,change:+j.priceChangePercent};
+  const j=await MarketData.request(MarketData.quotePath(s));
+  return {symbol:s,price:+j.lastPrice,change:+j.priceChangePercent};
 }
 
 function connectTicker(){
   if(state.tickerReconnectTimer){clearTimeout(state.tickerReconnectTimer);state.tickerReconnectTimer=null}
   if(state.ws){try{state.ws.onclose=null;state.ws.close()}catch{}state.ws=null}
   if(!state.symbols.length)return;
-  let marketAtConnect=state.market,cfg=marketCfg(marketAtConnect),streams=[...new Set([...state.symbols,...(paperUi?.monitoredSymbols()||[])])].map(s=>`${s.toLowerCase()}@miniTicker`).join('/');
-  let ws=new WebSocket(cfg.wsBase+streams);state.ws=ws;setConn('connecting');
-  ws.onopen=()=>{if(state.ws===ws&&state.market===marketAtConnect){state.tickerReconnectAttempt=0;setConn('online');paperUi?.resume()}};
+  let marketAtConnect=state.market;const args=[...new Set([...state.symbols,...(paperUi?.monitoredSymbols()||[])])].map(s=>({channel:'tickers',instId:MarketData.instrument(s)}));
+  let ws=new WebSocket(MarketData.WS_PUBLIC);state.ws=ws;setConn('connecting');const keep=socketKeepalive(ws);
+  ws.onopen=()=>{if(state.ws===ws&&state.market===marketAtConnect){ws.send(JSON.stringify({op:'subscribe',args}));state.tickerReconnectAttempt=0;paperUi?.resume()}};
   ws.onmessage=e=>{try{
     if(state.market!==marketAtConnect)return;
-    let payload=JSON.parse(e.data),d=payload.data||payload,s=d.s,p=+d.c,o=+d.o,ch=o?((p-o)/o*100):0;if(!s)return;
+    keep.touch();if(e.data==='pong')return;
+    const payload=JSON.parse(e.data);if(payload.event==='error'){setConn('offline');ws.close();return}if(payload.event==='subscribe')setConn('online');
+    for(const d of MarketData.tickerMessages(payload)){
+    let s=d.s,p=+d.c,o=+d.o,ch=o?((p-o)/o*100):0;if(!s)continue;
+    if(Date.now()-d.E>10000||d.E-Date.now()>5000)continue;setConn('online');
     state.tickers.set(s,{price:p,change:ch});scheduleTickerRender();
-    paperUi?.onQuote(s,p,Number.isFinite(+d.E)?+d.E:Date.now());
+    paperUi?.onQuote(s,p,d.E);
+    }
   }catch{}};
   ws.onerror=()=>{if(state.market===marketAtConnect)setConn('offline')};
   ws.onclose=()=>{
+    keep.stop();
     if(state.ws!==ws||state.market!==marketAtConnect)return;
     setConn('offline');state.tickerReconnectAttempt++;
     state.tickerReconnectTimer=setTimeout(()=>{if(state.ws===ws)connectTicker()},reconnectDelay(state.tickerReconnectAttempt));
@@ -954,7 +935,7 @@ async function setChartTimeframe(tf){
 async function analyzeSelected({forceRest=false,source='ui'}={}){
   const token=++state.analysisToken,requestMarket=state.market,requestSymbol=state.selected,requestMode=state.mode,requestChartTf=state.chartTf;
   refreshRsiMtf({forceRest});
-  renderSelectedTicker();if(source!=='closed-kline')els.hint.textContent=`Đang tải Binance ${marketLabel(requestMarket)} và phân tích...`;els.refresh.disabled=true;
+  renderSelectedTicker();if(source!=='closed-kline')els.hint.textContent=`Đang tải ${marketLabel(requestMarket)} và phân tích...`;els.refresh.disabled=true;
   if(source==='ws-resync'||source==='resume'||source==='online'||source==='integrity-resync')setDataHealth('resyncing','Đang kiểm tra và đồng bộ dữ liệu nến');
   else if(source!=='closed-kline')setDataHealth('syncing','Đang kiểm tra dữ liệu');
   try{
@@ -971,7 +952,7 @@ async function analyzeSelected({forceRest=false,source='ui'}={}){
     if(token===state.analysisToken&&requestMarket===state.market){
       let integrity=e?.name==='DataIntegrityError';
       setDataHealth('stale',integrity?'Phát hiện dữ liệu nến thiếu/lỗi':'Không thể xác nhận dữ liệu mới');
-      renderAnalysis(basicWait(requestMode==='swing'?'DÀI HẠN':'NGẮN HẠN',integrity?`Tạm chặn tín hiệu: ${e.message||e}`:`Không tải được Binance ${marketLabel(requestMarket)}: ${e.message||e}`));
+      renderAnalysis(basicWait(requestMode==='swing'?'DÀI HẠN':'NGẮN HẠN',integrity?`Tạm chặn tín hiệu: ${e.message||e}`:`Không tải được ${marketLabel(requestMarket)}: ${e.message||e}`));
     }
   }finally{if(token===state.analysisToken)els.refresh.disabled=false}
 }
@@ -1139,7 +1120,7 @@ async function removeSymbol(s){
   let wasSelected=state.selected===s;state.symbols=state.symbols.filter(x=>x!==s);state.favorites.delete(s);state.tickers.delete(s);
   if(wasSelected)state.selected=state.symbols[0];state.candles={};if(wasSelected)state.liveKlines={};persist();renderWatchlist();renderSelectedTicker();connectTicker();if(wasSelected){connectKlines();await analyzeSelected();}
 }
-async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim();if(!s)return;if(!s.endsWith('USDT'))s+='USDT';els.add.disabled=true;try{let t=await validateSymbol(s,state.market);state.tickers.set(s,{price:t.price,change:t.change});if(!state.symbols.includes(s))state.symbols.push(s);state.selected=s;state.candles={};state.liveKlines={};els.input.value='';persist();renderWatchlist();connectTicker();connectKlines();await analyzeSelected()}catch{alert(`Không tìm thấy ${s} trên Binance Spot hoặc Binance đang chặn kết nối từ mạng hiện tại.`)}finally{els.add.disabled=false}}
+async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim();if(!s)return;if(!s.endsWith('USDT'))s+='USDT';els.add.disabled=true;try{let t=await validateSymbol(s,state.market);state.tickers.set(s,{price:t.price,change:t.change});if(!state.symbols.includes(s))state.symbols.push(s);state.selected=s;state.candles={};state.liveKlines={};els.input.value='';persist();renderWatchlist();connectTicker();connectKlines();await analyzeSelected()}catch{alert(`Không tìm thấy ${s} trên OKX Spot hoặc OKX đang từ chối kết nối từ mạng hiện tại.`)}finally{els.add.disabled=false}}
 function setMode(m){state.mode=m;state.chartTf='4h';els.swing.classList.toggle('active',m==='swing');els.short.classList.toggle('active',m==='short');updateTimeframeButtons();persist();analyzeSelected()}
 els.swing.onclick=()=>setMode('swing');els.short.onclick=()=>setMode('short');els.add.onclick=addSymbol;els.input.addEventListener('keydown',e=>{if(e.key==='Enter')addSymbol()});els.refresh.onclick=()=>analyzeSelected({forceRest:true,source:'manual'});els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>setChartTimeframe(b.dataset.tf)));
 function updateChartPointer(e){

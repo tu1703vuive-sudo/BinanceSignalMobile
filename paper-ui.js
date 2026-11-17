@@ -11,7 +11,7 @@
     const price=x=>Number.isFinite(x)?x.toLocaleString('en-US',{maximumSignificantDigits:9}):'--';
     const stamp=x=>new Date(x).toLocaleString('vi-VN');
     const escape=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    const sourceLabel=t=>core.sourceOf(t)===core.PRICE_SOURCE?'Spot':'Futures (cũ)';
+    const sourceLabel=t=>core.sourceLabel(t);
     try{book=core.restore(localStorage.getItem(KEY))}catch(e){storageError=e.message}
     let sound=false,localAuto=true,remote=null,remoteMode=false,historySignature='',openSignature='',settingsDirty=false;try{const prefs=JSON.parse(localStorage.getItem(PREFS)||'{}');sound=prefs.sound===true;localAuto=prefs.auto!==false;enabled=localAuto}catch{}
     if(!hasLocks)enabled=false;
@@ -42,7 +42,7 @@
     }
     function notify(event,system=true){
       const t=event.trade,title=event.type==='OPEN'?`PAPER · Đã mở ${t.side} ${t.symbol}`:`PAPER · Đóng ${t.symbol} · ${t.reason}`;
-      const body=event.type==='OPEN'?`${sourceLabel(t)} · ${t.strategy?t.strategy+' · ':''}Giá ${price(t.entry)} · SL ${price(t.sl)} · TP ${price(t.tp)} · Bối cảnh ${t.score}`:`Giá ${price(t.exit)} · Lãi/lỗ ròng ${money(t.netPnl)} USDT${t.recovered?' · Khôi phục từ nến 1 phút':''}`;
+      const body=event.type==='OPEN'?`${sourceLabel(t)} · ${t.strategy?t.strategy+' · ':''}Giá ${price(t.entry)} · SL ${price(t.sl)} · TP ${price(t.tp)} · Bối cảnh ${t.score}`:`${sourceLabel(t)} · Giá ${price(t.exit)} · Lãi/lỗ ròng ${money(t.netPnl)} USDT${t.recovered?' · Khôi phục từ nến 1 phút':''}`;
       announce(title+' — '+body);beep();if(system)void systemNotification(title,body,t.id+'-'+event.type);
     }
     async function transaction(reducer){
@@ -72,19 +72,19 @@
         const failed=online&&rv.state.health.state==='error',mismatch=online&&(rv.state.strategyVersion!==root.RsiMtf.VERSION||rv.state.priceSource!==core.PRICE_SOURCE);
         const running=online&&!failed&&!mismatch&&rv.state.health.state==='live'&&enabled;
         $('remoteStatus').classList.toggle('online',!!running);$('remoteStatus').classList.toggle('error',!!cloud&&(!online||failed||mismatch));$('remoteStatus').classList.toggle('waiting',!!online&&!running&&!failed&&!mismatch);
-        $('remoteStatusText').textContent=cloud?(online?`${cf?'Cloudflare':'Máy chủ'} 24/7 · ${rv.state.symbol} · ${rv.state.priceSource===core.PRICE_SOURCE?'Spot':'Futures (cũ)'} · ${rv.state.health.state==='live'?(enabled?'đang chạy':'tự vào lệnh đã tắt'):rv.state.health.detail}`:'Máy chủ mất kết nối · '+(rv.error||'đang kết nối')):'Trình duyệt · Cần kết nối máy chủ để chạy 24/7';
+        $('remoteStatusText').textContent=cloud?(online?`${cf?'Cloudflare':'Máy chủ'} 24/7 · ${rv.state.symbol} · ${core.sourceLabel({priceSource:rv.state.priceSource})} · ${rv.state.health.state==='live'?(enabled?'đang chạy':'tự vào lệnh đã tắt'):rv.state.health.detail}`:'Máy chủ mất kết nối · '+(rv.error||'đang kết nối')):'Trình duyệt · Cần kết nối máy chủ để chạy 24/7';
         $('remoteDisconnect').hidden=!cloud;$('remoteImport').hidden=!online||!!book?.open||!!book?.trades.length;
         $('remoteSettingsStatus').textContent=cloud?(online?(cf?`${failed?'Cloudflare kết nối được; bot đang lỗi dữ liệu thị trường.':'Bot đã kết nối Cloudflare.'} TP/SL: nến đóng 1 phút. Hôm nay (UTC): ${u?.alarms||0} lượt bot · ${u?.apiRequests||0} lượt app · ${u?.marketRequests||0} lượt dữ liệu.`:'Bot chạy trên máy chủ, giữ trạng thái khi tắt app.'):'Không chuyển sang bot trình duyệt khi máy chủ mất kết nối.'):'';
         if($('remoteMarketCheck')){$('remoteMarketCheck').hidden=!cf;$('remoteMarketCheck').disabled=!online;}
         if($('remoteMarketResult')&&rv?.state?.marketDiagnostic){const d=rv.state.marketDiagnostic;$('remoteMarketResult').textContent=['Kiểm tra lúc '+new Date(d.at).toLocaleString('vi-VN'),d.ok?'Nến thử: lấy được':'Nến thử: chưa lấy được',d.detail,d.check?.message,d.nextAllowedAt>Date.now()?'Kiểm tra tiếp sau '+new Date(d.nextAllowedAt).toLocaleTimeString('vi-VN'):''].filter(Boolean).join('\n');}
       }
       root.dispatchEvent(new CustomEvent('paper:state',{detail:{enabled,open:!!book?.open}}));
-      $('paperTarget').textContent='Chỉ BTCUSDT · SPOT · RSI v4.1 · tối đa 1 lệnh mở';
+      $('paperTarget').textContent='Chỉ BTCUSDT · OKX SPOT · RSI v4.1 · tối đa 1 lệnh mở';
       $('paperStatus').textContent=cloud?(online?(recoveryError|| (enabled?'Tự vào lệnh đang BẬT trên máy chủ; không phụ thuộc điện thoại.':'Tự vào lệnh đang TẮT trên máy chủ.')):'Đang giữ sổ máy chủ. Chưa nhận được trạng thái mới; không tự mở lệnh trên trình duyệt.') : storageError||recoveryError||(recovering?'Đang kiểm tra nến bị bỏ lỡ; tạm dừng mở/đóng theo giá mới.':!hasLocks?'Trình duyệt chưa hỗ trợ khóa chống lệnh trùng. Hãy dùng Chrome/Safari mới.':document.visibilityState!=='visible'?'Tab đang ẩn · tạm dừng mở lệnh mới.':enabled?message:'Tự vào lệnh đang TẮT. Lệnh đang mở vẫn được theo dõi khi có dữ liệu.');
       $('paperStatus').classList.toggle('paper-error',!!storageError||!!recoveryError);
-      if(online&&(rv.state.strategyVersion!==root.RsiMtf.VERSION||rv.state.priceSource!==core.PRICE_SOURCE)){$('paperStatus').textContent='Máy chủ chưa dùng nguồn Spot mới. Cập nhật và deploy backend v3.6.0 để đồng bộ nguồn giá.';$('paperStatus').classList.add('paper-error')}
+      if(online&&(rv.state.strategyVersion!==root.RsiMtf.VERSION||rv.state.priceSource!==core.PRICE_SOURCE)){$('paperStatus').textContent='Máy chủ chưa dùng nguồn OKX Spot mới. Cập nhật và deploy backend v3.7.0 để đồng bộ nguồn giá.';$('paperStatus').classList.add('paper-error')}
       if(book?.open&&book.open.symbol!==core.PAPER_SYMBOL)$('paperStatus').textContent+=` Lệnh cũ ${book.open.symbol} được quản lý đến khi đóng; lệnh mới chỉ BTCUSDT.`;
-      if(book?.open&&core.sourceOf(book.open)!==core.PRICE_SOURCE)$('paperStatus').textContent+=' Lệnh Futures cũ giữ nguồn Futures; không dùng giá Spot để đóng.';
+      if(book?.open&&core.sourceOf(book.open)!==core.PRICE_SOURCE)$('paperStatus').textContent+=' Lệnh cũ giữ nguyên nguồn '+sourceLabel(book.open)+' đến khi đóng.';
       $('paperNotify').textContent=!('Notification' in root)?'Thông báo trong app':Notification.permission==='granted'?'✓ Đã bật thông báo':'Bật thông báo thiết bị';
       if(!book)return;
       const observed=book.open?latestQuotes.get(book.open.symbol):null,quote=observed?.priceSource===core.sourceOf(book.open)?observed:null,stats=core.stats(book,quote?.price||book.open?.lastPrice);
@@ -147,7 +147,7 @@
       if(remote?.configured()||input.symbol!==core.PAPER_SYMBOL)return;
       if(!enabled||!book||recovering||recoveryError||storageError||document.visibilityState!=='visible')return;
       const q=latestQuotes.get(input.symbol),now=Date.now();
-      if(input.blocked||!adapter.connected()||!q||q.priceSource!==core.PRICE_SOURCE||now-q.at>5000){message='Chờ dữ liệu và giá Spot trực tiếp hợp lệ.';render();return}
+      if(input.blocked||!adapter.connected()||!q||q.priceSource!==core.PRICE_SOURCE||now-q.at>5000){message='Chờ dữ liệu và giá OKX Spot trực tiếp hợp lệ.';render();return}
       if(!['LONG','SHORT'].includes(input.result.signal)){message='Đang chờ LONG/SHORT XÁC NHẬN mới.';render();return}
       const signalAt=input.frames['15m'].closedAt+1;
       if((book.lastSignals[input.symbol]||0)>=signalAt)return;

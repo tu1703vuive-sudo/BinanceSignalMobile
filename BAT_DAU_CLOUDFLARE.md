@@ -1,6 +1,6 @@
-**Bản hiện tại: v3.6.0, giá Binance Spot, bộ RSI chính v4.1.** Nếu đã cài Cloudflare, dùng [hướng dẫn cập nhật Spot, giữ khóa và sổ cũ](CAP_NHAT_v3.6.0_SPOT.md). Các bước cài mới bên dưới vẫn áp dụng.
+**Bản hiện tại: v3.7.0, giá OKX Spot, RSI chính v4.1.** Đã cài Cloudflare: dùng [hướng dẫn cập nhật OKX, giữ khóa và sổ cũ](CAP_NHAT_v3.7.0_OKX_SPOT.md). Các bước cài mới bên dưới vẫn áp dụng.
 
-# BinanceSignalMobile v3.6.0 — chạy thử Cloudflare
+# BinanceSignalMobile v3.7.0 — chạy thử Cloudflare
 
 Giữ giao diện trên GitHub Pages. Chuyển riêng bot paper, sổ lệnh và Web Push lên một Cloudflare Worker + SQLite Durable Object. Sau khi triển khai và đăng ký thiết bị thành công, bot hoạt động khi đóng trình duyệt, tắt máy tính và khóa điện thoại.
 
@@ -16,6 +16,8 @@ styles.css
 app.js
 sw.js
 manifest.webmanifest
+binance-market.js
+market-data.js
 rsi-mtf.js
 paper-trading.js
 remote-paper.js
@@ -23,7 +25,7 @@ paper-ui.js
 mobile-ui.js
 ```
 
-Đợi GitHub Pages triển khai xong, mở lại app. Trong Cài đặt sẽ thấy **v3.6.0 · RSI v4.1 · BTC**. Nếu vẫn hiện bản cũ, đóng toàn bộ cửa sổ app rồi mở lại / tải lại trang. Không xóa dữ liệu trình duyệt vì có thể làm mất sổ paper lưu cục bộ.
+Đợi GitHub Pages triển khai xong, mở lại app. Trong Cài đặt sẽ thấy **v3.7.0 · RSI v4.1 · BTC**. Nếu vẫn hiện bản cũ, đóng toàn bộ cửa sổ app rồi mở lại / tải lại trang. Không xóa dữ liệu trình duyệt vì có thể làm mất sổ paper lưu cục bộ.
 
 ## 2. Cài bot lên Cloudflare — làm một lần trên Windows
 
@@ -49,7 +51,7 @@ Script `deploy` tải mã nguồn, cài secrets rồi kiểm tra API bằng mã 
 
 1. Mở [app GitHub Pages](https://tu1703vuive-sudo.github.io/BinanceSignalMobile/).
 2. Vào **Paper Trading → Cài đặt & thông báo → Chạy 24/7 & thông báo đẩy**.
-3. Điền URL và mã từ `connection.txt`, nhấn **Kết nối 24/7**. Đợi hiện **Cloudflare 24/7 · BTCUSDT · Spot · đang chạy**. Nếu hiện lỗi Binance / dữ liệu, phải xử lý lỗi đó trước; kết nối API thành công chưa có nghĩa dữ liệu thị trường đã hoạt động.
+3. Điền URL và mã từ `connection.txt`, nhấn **Kết nối 24/7**. Đợi hiện **Cloudflare 24/7 · BTCUSDT · OKX Spot · đang chạy**. Nếu hiện lỗi OKX / dữ liệu, phải xử lý lỗi đó trước; kết nối API thành công chưa có nghĩa dữ liệu thị trường đã hoạt động.
 4. Nhấn **Bật thông báo thiết bị** và chấp nhận quyền một lần. Nút cũng gửi thông báo thử. Hãy kiểm tra bạn thực sự nhận được trên điện thoại. Quyền hệ điều hành cần thao tác của bạn; website không thể tự cấp.
 5. iPhone: thêm website vào Màn hình chính, mở app từ biểu tượng đó rồi bật thông báo. Nếu chặn quyền trước đó, đổi lại trong cài đặt thiết bị. Chế độ Không làm phiền / hạn chế nền có thể ảnh hưởng thời điểm hiển thị.
 
@@ -82,11 +84,11 @@ Trong phần kết nối app có bộ đếm ngày UTC (đổi ngày lúc 07:00 
 
 | Hiện tượng | Cách xử lý |
 |---|---|
-| Không thấy v3.6.0 | Kiểm tra GitHub Pages đã deploy các file ở bước 1; đóng/mở lại app |
+| Không thấy v3.7.0 | Kiểm tra GitHub Pages đã deploy các file ở bước 1; đóng/mở lại app |
 | Mã kết nối không đúng | Chép lại từ `cloudflare/connection.txt`; không dùng Cloudflare API token làm mã app |
 | Origin không được phép | `ALLOWED_ORIGINS` phải là origin chính xác của website. Mặc định đã điền `https://tu1703vuive-sudo.github.io`; đổi miền thì sửa `wrangler.jsonc` và deploy lại |
-| Binance HTTP 451/403 | Cloudflare tại vị trí chạy có thể bị Binance từ chối. Bot giữ sổ, không bịa dữ liệu; chưa thể coi bản thử đã thành công. Không có cam kết Binance luôn cho phép egress Cloudflare |
-| Binance HTTP 429/418 / thiếu nến | Bot lùi lịch thử lại và giữ lệnh; chỉ tiếp tục sau khi dữ liệu hợp lệ |
+| OKX HTTP 451/403 | Cloudflare tại vị trí chạy có thể bị OKX từ chối. Bot giữ sổ, không bịa dữ liệu; chưa thể coi bản thử đã thành công. Không có cam kết OKX luôn cho phép egress Cloudflare |
+| OKX HTTP 429 / thiếu nến | Bot lùi lịch thử lại và giữ lệnh; chỉ tiếp tục sau khi dữ liệu hợp lệ |
 | Không nhận thông báo | Kiểm tra quyền thiết bị, iPhone mở từ Màn hình chính, thông báo thử và mạng; app có quyền chưa chắc đã đăng ký cloud thành công |
 | Không vào ngay sau bật | Bot đợi tín hiệu xác nhận mới; không vào lại tín hiệu đang hiển thị |
 | Muốn tạm dừng | Tắt **Tự vào lệnh**. Lệnh đang mở vẫn được quản lý. Muốn dừng hẳn: đóng lệnh rồi **Dừng bot & ngắt kết nối** |
@@ -94,7 +96,7 @@ Trong phần kết nối app có bộ đếm ngày UTC (đổi ngày lúc 07:00 
 
 ## Kiểm thử và giới hạn bàn giao
 
-Kiểm thử gồm RSI/sổ lệnh dùng chung; chạy alarm trên workerd/SQLite cục bộ; API xác thực/CORS; gửi push mã hóa bằng Web Crypto; khôi phục sau eviction; chống vào trùng; giữ auto và sổ; không ghi đè lịch sử; giao diện qua JSDOM. Dữ liệu Binance và nhà cung cấp push trong kiểm thử được mô phỏng. Chưa kiểm chứng egress Binance hoặc thông báo tới điện thoại thật từ tài khoản Cloudflare của bạn. Bước 3 là bước kiểm chứng thực tế.
+Kiểm thử gồm RSI/sổ lệnh dùng chung; chạy alarm trên workerd/SQLite cục bộ; API xác thực/CORS; gửi push mã hóa bằng Web Crypto; khôi phục sau eviction; chống vào trùng; giữ auto và sổ; không ghi đè lịch sử; giao diện qua JSDOM. Dữ liệu OKX và nhà cung cấp push trong kiểm thử được mô phỏng. Chưa kiểm chứng egress OKX hoặc thông báo tới điện thoại thật từ tài khoản Cloudflare của bạn. Bước 3 là bước kiểm chứng thực tế.
 
 Nguồn chính thức:
 

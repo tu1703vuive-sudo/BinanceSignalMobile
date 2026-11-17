@@ -1,3 +1,11 @@
+# v3.7.0 — OKX Spot · RSI v4.1 · BTC paper
+
+[Cập nhật Cloudflare và 12 file giao diện, giữ khóa và sổ cũ](CAP_NHAT_v3.7.0_OKX_SPOT.md). Chart, Watchlist, RSI và mọi lệnh mới dùng OKX Spot, UTC ngày/tháng. Deploy kiểm tra dữ liệu từ chính Cloudflare trước khi xác nhận sẵn sàng.
+
+Các ghi chú phiên bản bên dưới là lịch sử; từ v3.7.0 nguồn chính là OKX Spot.
+
+---
+
 # v3.6.0 — Binance Spot · RSI v4.1 · BTC paper
 
 [Cách cập nhật frontend và Cloudflare, giữ khóa và sổ cũ](CAP_NHAT_v3.6.0_SPOT.md). Chart, Watchlist, RSI và lệnh mới dùng giá Spot công khai. Deploy kiểm tra dữ liệu từ chính Cloudflare; chỉ trạng thái dữ liệu thành công mới xác nhận bot sẵn sàng.

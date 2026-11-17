@@ -1,5 +1,5 @@
-const CACHE='binance-signal-v3-6-0-spot';
-const ASSETS=['./','./index.html','./styles.css?v=360','./rsi-mtf.js?v=360','./paper-trading.js?v=360','./remote-paper.js?v=360','./paper-ui.js?v=360','./mobile-ui.js?v=360','./app.js?v=360','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE='binance-signal-v3-7-0-okx-spot';
+const ASSETS=['./','./index.html','./styles.css?v=370','./binance-market.js?v=370','./market-data.js?v=370','./rsi-mtf.js?v=370','./paper-trading.js?v=370','./remote-paper.js?v=370','./paper-ui.js?v=370','./mobile-ui.js?v=370','./app.js?v=370','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 
 self.addEventListener('install',e=>e.waitUntil(
   caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())
