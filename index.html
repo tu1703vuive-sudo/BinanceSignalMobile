@@ -1,49 +1,33 @@
 <!doctype html>
-<html lang="vi">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0b0f14" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Binance Signal" />
-  <title>Binance Signal</title>
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <link rel="stylesheet" href="./styles.css?v=327" />
+<html lang="vi"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#080c12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Binance Signal">
+  <title>Signal · Futures Workspace</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./styles.css?v=330">
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <div class="eyebrow">BINANCE SIGNAL · FUTURES</div>
-      <h1>Market Monitor</h1>
-    </div>
-    <div id="connStatus" class="status-pill offline"><span class="dot"></span><span>Đang kết nối</span></div>
-  </header>
+  <header class="topbar"><a class="brand" href="#watchlist" aria-label="Signal — về Watchlist"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 15l4-6 5 5 5-9"></path><path d="M15 5h4v4"></path></svg></span><span><b>Signal<span class="brand-dot">.</span></b><small>FUTURES WORKSPACE</small></span></a><div class="header-actions"><div id="connStatus" class="status-pill offline"><span class="dot"></span><span>Đang kết nối</span></div><button id="refreshBtn" class="icon-btn" aria-label="Làm mới dữ liệu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"></path><path d="M6 7a7 7 0 0 1 12 0l2 5M4 12l2 5a7 7 0 0 0 12 0"></path></svg></button><button class="icon-btn" id="appSettingsBtn" aria-label="Cài đặt ứng dụng"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z"></path><circle cx="12" cy="12" r="3"></circle></svg></button></div></header>
 
   <main class="shell">
-    <section class="toolbar card">
-      <div class="market-caption mode-caption">CHẾ ĐỘ PHÂN TÍCH</div>
-      <div class="segmented" role="tablist" aria-label="Chọn chế độ phân tích">
-        <button id="modeSwing" class="seg-btn" data-mode="swing">Dài hạn</button>
-        <button id="modeShort" class="seg-btn active" data-mode="short">Ngắn hạn</button>
-      </div>
-      <div class="toolbar-row">
-        <input id="symbolInput" inputmode="latin" autocomplete="off" placeholder="VD: XRPUSDT" maxlength="20" />
-        <button id="addSymbolBtn" class="primary">+ Coin</button>
-        <button id="refreshBtn" class="ghost">↻</button>
-      </div>
-    </section>
+
 
     <section class="layout">
-      <aside class="watchlist card">
-        <div class="section-title"><span>Watchlist</span><span id="watchCount" class="muted"></span></div>
+      <aside class="watchlist card" id="watchlist">
+        <div class="section-title"><span>Watchlist</span><span id="watchCount" class="muted"></span><button class="icon-btn watch-manage" id="watchManageBtn" aria-label="Thêm và quản lý coin"><span aria-hidden="true">＋</span></button></div>
         <div id="watchList" class="watch-items"></div>
-      </aside>
+      <div class="watch-manage-form" id="watchManage" hidden=""><div class="toolbar-row">
+        <input id="symbolInput" inputmode="latin" autocomplete="off" placeholder="VD: XRPUSDT" maxlength="20">
+        <button id="addSymbolBtn" class="primary">+ Coin</button>
 
-      <section class="content">
-        <div class="hero card">
-          <div class="hero-head">
+      </div><p class="subnote">Chạm ★ để đánh dấu yêu thích, × để xóa coin.</p></div></aside>
+
+      <section class="content"><div class="chart-card card" id="chartSection"><div class="hero-head asset-overview">
             <div>
               <div id="selectedSymbol" class="symbol">BTCUSDT</div>
               <div id="modeLabel" class="muted">DÀI HẠN</div>
@@ -53,101 +37,22 @@
               <div id="selectedChange" class="change">--</div>
             </div>
           </div>
-
-          <div class="signal-row">
-            <div id="signalBadge" class="signal wait">WAIT</div>
-            <div>
-              <div id="scoreText" class="score">Score --</div>
-              <div id="timeframes" class="timeframes">--</div>
-            </div>
-          </div>
-
-          <div id="planHint" class="plan-hint">Đang tải dữ liệu...</div>
-
-          <div class="inline-plan">
-            <div id="inlinePlanTitle" class="inline-plan-title">WAIT · KẾ HOẠCH</div>
-            <div class="metrics inline-plan-metrics">
-              <div><span>Entry / Vùng canh</span><strong id="entryValue">--</strong></div>
-              <div><span>Stop Loss</span><strong id="slValue">--</strong></div>
-              <div><span>TP1</span><strong id="tp1Value">--</strong></div>
-              <div><span>TP2</span><strong id="tp2Value">--</strong></div>
-              <div><span>TP3</span><strong id="tp3Value">--</strong></div>
-              <div><span>Invalidation</span><strong id="invalidValue">--</strong></div>
-            </div>
-            <div id="triggerText" class="subnote inline-plan-note"></div>
-            <div id="breakoutText" class="subnote inline-plan-note"></div>
-          </div>
-        </div>
-
-        <section id="rsiMtf" class="rsi-mtf card" aria-labelledby="rsiMtfTitle">
-          <div class="section-title"><span id="rsiMtfTitle">RSI · 5 KHUNG</span><span class="rsi-mtf-mode">Momentum</span></div>
-          <div class="rsi-mtf-caption"><span id="rsiMtfSymbol">BTCUSDT</span><span>RSI 14 · Giá đóng cửa</span></div>
-          <div id="rsiMtfGrid" class="rsi-mtf-grid" aria-label="RSI trực tiếp theo khung thời gian"></div>
-          <div class="rsi-mtf-source">Số lớn: trực tiếp · Chốt: nến đã đóng · ↗ ↘: chiều RSI chốt</div>
-          <div class="rsi-mtf-directions" aria-label="Thiên hướng RSI">
-            <div id="rsiMtfLong">↑ LONG</div><div id="rsiMtfShort">↓ SHORT</div>
-          </div>
-          <div class="rsi-mtf-result" role="status" aria-live="polite" aria-atomic="true">
-            <strong id="rsiMtfSignal">ĐANG TẢI DỮ LIỆU</strong><span id="rsiMtfScore">Điểm xu hướng --</span>
-          </div>
-          <div class="rsi-mtf-meter" aria-hidden="true"><i id="rsiMtfMarker"></i></div>
-          <div class="rsi-mtf-meter-labels"><span>−100 · SHORT</span><span>LONG · +100</span></div>
-          <p id="rsiMtfReason" class="rsi-mtf-reason">Đang lấy nến cho 1M · 1D · 4H · 1H · 15M.</p>
-          <div class="rsi-mtf-source">Tín hiệu RSI độc lập với kế hoạch Entry / SL / TP phía trên.</div>
-          <div id="rsiMtfWarnings" class="rsi-mtf-warnings"></div>
-          <details class="rsi-mtf-details">
-            <summary>Cách tính &amp; điều kiện xác nhận</summary>
-            <p>Điểm và xác nhận chỉ dùng RSI nến đã đóng. Trọng số: 1M (tháng) 10% · 1D 20% · 4H 30% · 1H 25% · 15M 15%.</p>
-            <p>RSI ≥55: +1 · RSI ≤45: −1 · ở giữa: 0. Điểm ≥+35: thiên LONG; ≤−35: thiên SHORT; ở giữa: trung lập. Đây là điểm đồng thuận, không phải xác suất thắng.</p>
-            <p>LONG: thiên LONG, RSI 4H và 1H ≥55, RSI 15M vừa vượt 55. SHORT: thiên SHORT, RSI 4H và 1H ≤45, RSI 15M vừa xuống dưới 45. So sánh hai nến 15M đã đóng; xác nhận có hiệu lực đến nến 15M tiếp theo.</p>
-            <p>Mỗi khung cần ít nhất 16 nến đã đóng để có RSI 14 và giá trị trước đó. Dữ liệu thiếu, cũ hoặc lỗi: CHỜ. Bộ RSI này độc lập với tín hiệu và Entry/SL/TP phía trên; dùng trọng số ngắn hạn trong cả hai chế độ của app.</p>
-            <div id="rsiMtfClosedAt" class="rsi-mtf-closed-at"></div>
-          </details>
-        </section>
-
-        <section id="paperPanel" class="paper-panel card" aria-labelledby="paperTitle">
-          <div class="section-title"><span id="paperTitle">PAPER TRADING</span><span class="paper-badge">VỐN ẢO · RSI 5 KHUNG</span></div>
-          <label class="paper-auto-row"><span><b>Tự vào lệnh giả</b><small id="paperTarget">Theo dõi coin đang chọn · tối đa 1 lệnh mở</small></span><input id="paperAuto" type="checkbox" role="switch" /></label>
-          <p id="paperStatus" class="paper-status" role="status">Tự vào lệnh đang TẮT.</p>
-          <div class="paper-wallet"><div><span>Tổng vốn ước tính · USDT</span><strong id="paperEquity">10,000.00</strong></div><div><span>Số dư khả dụng</span><b id="paperCash">10,000.00</b></div><div><span>Lãi/lỗ đã chốt</span><b id="paperRealized">0.00</b></div><small id="paperCount">0 lệnh đóng</small></div>
-          <div id="paperOpen" class="paper-open"></div>
-          <div class="paper-actions"><button id="paperNotify" type="button" class="paper-small-btn">Bật thông báo thiết bị</button><label><input id="paperSound" type="checkbox" /> Âm thanh</label><button id="paperRetry" type="button" class="paper-small-btn" hidden>Thử đồng bộ lại</button></div>
-          <details class="paper-settings"><summary>Cấu hình vốn &amp; TP/SL</summary>
-            <div class="paper-form">
-              <label>Vốn ban đầu · USDT<input id="paper-initialCapital" type="number" min="10" max="1000000000" step="1" /></label>
-              <label>Giá trị mỗi lệnh · USDT<input id="paper-notional" type="number" min="1" max="1000000000" step="1" /></label>
-              <label>Stop Loss · %<input id="paper-slPct" type="number" min="0.1" max="20" step="0.1" /></label>
-              <label>Take Profit · %<input id="paper-tpPct" type="number" min="0.1" max="99.9" step="0.1" /></label>
-              <label>Phí mỗi chiều · %<input id="paper-feePct" type="number" min="0" max="1" step="0.01" /></label>
-              <label>Trượt giá · %<input id="paper-slippagePct" type="number" min="0" max="1" step="0.01" /></label>
-            </div>
-            <button id="paperSave" type="button" class="paper-small-btn">Lưu cho lệnh tiếp theo</button>
-            <p>Giả lập 1×, không gửi lệnh Binance. TP/SL tính từ giá khớp giả, độc lập kế hoạch giao dịch phía trên. Vốn ban đầu khóa sau lệnh đầu tiên; cấu hình mới không sửa lệnh đang mở.</p>
-          </details>
-          <details class="paper-history"><summary>Lịch sử lệnh <span id="paperHistoryCount">0</span></summary><div id="paperHistory"></div><button id="paperMore" type="button" class="paper-small-btn" hidden>Xem thêm 20 lệnh</button></details>
-          <div class="paper-actions"><button id="paperCsv" type="button" class="paper-small-btn">Xuất lịch sử CSV</button><button id="paperBackup" type="button" class="paper-small-btn">Sao lưu JSON</button></div>
-          <p class="paper-note">Chỉ mở lệnh mới khi tab đang hiện và có dữ liệu trực tiếp. Mỗi lần mở lại app cần bật lại tự vào lệnh. Khi đóng app, bot dừng; lần mở sau kiểm tra TP/SL bằng nến 1 phút. Cùng nến chạm cả TP và SL: tính SL trước. Phần nến trước thời điểm vào lệnh hoặc tick đã quan sát không được dùng lại.</p>
-          <p class="paper-note">Lịch sử lưu trên trình duyệt và địa chỉ website này. Sao lưu trước khi đổi thiết bị, đổi địa chỉ hoặc xóa dữ liệu web. Thông báo thiết bị cần được cấp quyền; âm thanh phụ thuộc trình duyệt.</p>
-          <div id="paperToast" class="paper-toast" role="status" aria-live="polite" hidden></div>
-        </section>
-
-        <div class="chart-card card">
           <div class="section-title chart-title-row">
             <span id="chartTitle">Biểu đồ</span>
             <span class="chart-head-right">
               <button id="chartSettingsBtn" class="chart-settings-btn" type="button" aria-label="Cài đặt hiển thị biểu đồ" aria-expanded="false" aria-controls="chartSettingsPanel">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Zm8.1 4.5-1.8-1.1c.1-.7.1-1.3 0-2l1.8-1.1-2-3.5-2 .9c-.5-.4-1.1-.7-1.7-1L14.2 3h-4.1l-.3 2.3c-.6.2-1.2.6-1.7 1l-2-.9-2 3.5L6 10c-.1.7-.1 1.3 0 2l-1.8 1.1 2 3.5 2-.9c.5.4 1.1.7 1.7 1l.3 2.3h4.1l.3-2.3c.6-.2 1.2-.6 1.7-1l2 .9 1.8-3.5Z"/></svg>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Zm8.1 4.5-1.8-1.1c.1-.7.1-1.3 0-2l1.8-1.1-2-3.5-2 .9c-.5-.4-1.1-.7-1.7-1L14.2 3h-4.1l-.3 2.3c-.6.2-1.2.6-1.7 1l-2-.9-2 3.5L6 10c-.1.7-.1 1.3 0 2l-1.8 1.1 2 3.5 2-.9c.5.4 1.1.7 1.7 1l.3 2.3h4.1l.3-2.3c.6-.2 1.2-.6 1.7-1l2 .9 1.8-3.5Z"></path></svg>
               </button>
               <span id="chartLiveBadge" class="chart-live"><i></i><span>SYNC</span></span><span id="updatedAt" class="muted"></span>
             </span>
             <div id="chartSettingsPanel" class="chart-settings-panel" role="dialog" aria-label="Cài đặt biểu đồ">
               <div class="chart-settings-title"><strong>Hiển thị biểu đồ</strong><span>Chỉ thay đổi phần nhìn</span></div>
               <div class="chart-presets"><button type="button" data-preset="minimal">Tối giản</button><button type="button" data-preset="trading">Trading</button><button type="button" data-preset="full">Đầy đủ</button></div>
-              <label class="chart-setting-row"><span><b>RSI 14</b><small>Panel động lượng</small></span><input type="checkbox" data-layer="rsi" checked><i></i></label>
-              <label class="chart-setting-row"><span><b>Volume</b><small>Khối lượng dưới nến</small></span><input type="checkbox" data-layer="volume" checked><i></i></label>
-              <label class="chart-setting-row"><span><b>Support / Resistance</b><small>Vùng S/R trên chart</small></span><input type="checkbox" data-layer="sr" checked><i></i></label>
-              <label class="chart-setting-row"><span><b>Entry / SL / TP</b><small>Vùng vào lệnh và mục tiêu</small></span><input type="checkbox" data-layer="trade" checked><i></i></label>
-              <label class="chart-setting-row"><span><b>Crosshair / OHLC</b><small>Thông tin khi rê hoặc chạm</small></span><input type="checkbox" data-layer="crosshair" checked><i></i></label>
+              <label class="chart-setting-row"><span><b>RSI 14</b><small>Panel động lượng</small></span><input type="checkbox" data-layer="rsi" checked=""><i></i></label>
+              <label class="chart-setting-row"><span><b>Volume</b><small>Khối lượng dưới nến</small></span><input type="checkbox" data-layer="volume" checked=""><i></i></label>
+              <label class="chart-setting-row"><span><b>Support / Resistance</b><small>Vùng S/R trên chart</small></span><input type="checkbox" data-layer="sr" checked=""><i></i></label>
+              <label class="chart-setting-row"><span><b>Entry / SL / TP</b><small>Vùng vào lệnh và mục tiêu</small></span><input type="checkbox" data-layer="trade" checked=""><i></i></label>
+              <label class="chart-setting-row"><span><b>Crosshair / OHLC</b><small>Thông tin khi rê hoặc chạm</small></span><input type="checkbox" data-layer="crosshair" checked=""><i></i></label>
             </div>
           </div>
           <div id="timeframeSelector" class="timeframe-selector" aria-label="Khung thời gian biểu đồ">
@@ -174,7 +79,95 @@
           </div>
         </div>
 
-        <div class="grid-2">
+
+        <section id="rsiMtf" class="rsi-mtf card" aria-labelledby="rsiMtfTitle">
+          <div class="section-title"><span id="rsiMtfTitle">RSI · 5 KHUNG</span><span class="rsi-mtf-mode">Momentum</span></div>
+          <div class="rsi-mtf-caption"><span id="rsiMtfSymbol">BTCUSDT</span><span>RSI 14 · Giá đóng cửa</span></div>
+          <div id="rsiMtfGrid" class="rsi-mtf-grid" aria-label="RSI trực tiếp theo khung thời gian"></div>
+
+          <div class="rsi-mtf-directions" aria-label="Thiên hướng RSI">
+            <div id="rsiMtfLong">↑ LONG</div><div id="rsiMtfShort">↓ SHORT</div>
+          </div>
+          <div class="rsi-mtf-result" role="status" aria-live="polite" aria-atomic="true">
+            <strong id="rsiMtfSignal">ĐANG TẢI DỮ LIỆU</strong><span id="rsiMtfScore">Điểm xu hướng --</span>
+          </div>
+          <div class="rsi-mtf-meter" aria-hidden="true"><i id="rsiMtfMarker"></i></div>
+          <div class="rsi-mtf-meter-labels"><span>−100 · SHORT</span><span>LONG · +100</span></div>
+
+
+          <div id="rsiMtfWarnings" class="rsi-mtf-warnings"></div>
+
+        <details class="rsi-insights"><summary>Chi tiết tín hiệu <span id="rsiCountdown" class="muted">15M</span></summary><div class="rsi-mtf-source">Số lớn: trực tiếp · Chốt: nến đã đóng · ↗ ↘: chiều RSI chốt</div><p id="rsiMtfReason" class="rsi-mtf-reason">Đang lấy nến cho 1M · 1D · 4H · 1H · 15M.</p><div class="rsi-mtf-source">Tín hiệu RSI độc lập với kế hoạch Short / Swing nâng cao.</div><details class="rsi-mtf-details">
+            <summary>Cách tính &amp; điều kiện xác nhận</summary>
+            <p>Điểm và xác nhận chỉ dùng RSI nến đã đóng. Trọng số: 1M (tháng) 10% · 1D 20% · 4H 30% · 1H 25% · 15M 15%.</p>
+            <p>RSI ≥55: +1 · RSI ≤45: −1 · ở giữa: 0. Điểm ≥+35: thiên LONG; ≤−35: thiên SHORT; ở giữa: trung lập. Đây là điểm đồng thuận, không phải xác suất thắng.</p>
+            <p>LONG: thiên LONG, RSI 4H và 1H ≥55, RSI 15M vừa vượt 55. SHORT: thiên SHORT, RSI 4H và 1H ≤45, RSI 15M vừa xuống dưới 45. So sánh hai nến 15M đã đóng; xác nhận có hiệu lực đến nến 15M tiếp theo.</p>
+            <p>Mỗi khung cần ít nhất 16 nến đã đóng để có RSI 14 và giá trị trước đó. Dữ liệu thiếu, cũ hoặc lỗi: CHỜ. Bộ RSI này độc lập với tín hiệu và Entry/SL/TP phía trên; dùng trọng số ngắn hạn trong cả hai chế độ của app.</p>
+            <div id="rsiMtfClosedAt" class="rsi-mtf-closed-at"></div>
+          </details></details></section>
+
+        <section id="paperPanel" class="paper-panel card" aria-labelledby="paperTitle">
+          <div class="section-title"><span id="paperTitle">PAPER TRADING</span><span class="paper-badge">GIẢ LẬP</span></div><div class="remote-status" id="remoteStatus"><span class="remote-status-dot"></span><span id="remoteStatusText">Trình duyệt · Chưa kết nối 24/7</span></div>
+          <label class="paper-auto-row"><span><b>Tự vào lệnh</b><small id="paperTarget">Theo dõi coin đang chọn · tối đa 1 lệnh mở</small></span><input id="paperAuto" type="checkbox" role="switch"></label>
+          <p id="paperStatus" class="paper-status" role="status">Tự vào lệnh đã bật · chờ dữ liệu.</p>
+          <div class="paper-wallet"><div><span>Tổng vốn ước tính · USDT</span><strong id="paperEquity">10,000.00</strong></div><div><span>Lãi/lỗ đã chốt</span><b id="paperRealized">0.00</b></div></div><details class="paper-account"><summary>Chi tiết tài khoản</summary><div><span>Số dư khả dụng</span><b id="paperCash">10,000.00</b></div><small id="paperCount">0 lệnh đóng</small></details>
+          <div id="paperOpen" class="paper-open"></div>
+
+          <details class="paper-settings"><summary>Cài đặt &amp; thông báo</summary><details class="remote-settings"><summary>Chạy 24/7 &amp; thông báo đẩy</summary><p class="subnote">Kết nối máy chủ để bot tiếp tục chạy khi tắt app. GitHub Pages riêng lẻ không chạy được bot nền.</p><label>Địa chỉ máy chủ HTTPS<input id="remoteUrl" type="url" placeholder="https://bot.tenmiencuaban.com" autocomplete="url"></label><label>Mã kết nối máy chủ<input id="remoteToken" type="password" placeholder="Mã tạo khi cài máy chủ" autocomplete="off"></label><div class="paper-actions"><button id="remoteConnect" type="button" class="paper-small-btn">Kết nối 24/7</button><button id="remoteDisconnect" type="button" class="paper-small-btn" hidden="">Dừng bot &amp; ngắt kết nối</button><button id="remoteImport" type="button" class="paper-small-btn" hidden="">Chuyển sổ hiện tại lên máy chủ</button></div><p id="remoteSettingsStatus" class="subnote"></p></details>
+            <div class="paper-actions"><button id="paperNotify" type="button" class="paper-small-btn">Bật thông báo thiết bị</button><label><input id="paperSound" type="checkbox"> Âm thanh</label><button id="paperRetry" type="button" class="paper-small-btn" hidden="">Thử đồng bộ lại</button></div><div class="paper-form">
+              <label>Vốn ban đầu · USDT<input id="paper-initialCapital" type="number" min="10" max="1000000000" step="1"></label>
+              <label>Giá trị mỗi lệnh · USDT<input id="paper-notional" type="number" min="1" max="1000000000" step="1"></label>
+              <label>Stop Loss · %<input id="paper-slPct" type="number" min="0.1" max="20" step="0.1"></label>
+              <label>Take Profit · %<input id="paper-tpPct" type="number" min="0.1" max="99.9" step="0.1"></label>
+              <label>Phí mỗi chiều · %<input id="paper-feePct" type="number" min="0" max="1" step="0.01"></label>
+              <label>Trượt giá · %<input id="paper-slippagePct" type="number" min="0" max="1" step="0.01"></label>
+            </div>
+            <button id="paperSave" type="button" class="paper-small-btn">Lưu cho lệnh tiếp theo</button>
+            <p>Giả lập 1×, không gửi lệnh Binance. TP/SL tính từ giá khớp giả, độc lập kế hoạch giao dịch phía trên. Vốn ban đầu khóa sau lệnh đầu tiên; cấu hình mới không sửa lệnh đang mở.</p>
+          </details>
+          <details class="paper-history"><summary>Lịch sử lệnh <span id="paperHistoryCount">0</span></summary><div id="paperHistory"></div><button id="paperMore" type="button" class="paper-small-btn" hidden="">Xem thêm 20 lệnh</button><div class="paper-actions"><button id="paperCsv" type="button" class="paper-small-btn">Xuất lịch sử CSV</button><button id="paperBackup" type="button" class="paper-small-btn">Sao lưu JSON</button></div></details>
+
+
+
+          <div id="paperToast" class="paper-toast" role="status" aria-live="polite" hidden=""></div>
+        <details class="paper-help"><summary>Vận hành &amp; dữ liệu</summary><p class="paper-note">Chỉ mở lệnh mới khi tab đang hiện và có dữ liệu trực tiếp. Trạng thái tự vào lệnh được lưu khi mở lại app. Khi đóng app, bot dừng; lần mở sau kiểm tra TP/SL bằng nến 1 phút. Cùng nến chạm cả TP và SL: tính SL trước. Phần nến trước thời điểm vào lệnh hoặc tick đã quan sát không được dùng lại.</p><p class="paper-note">Lịch sử lưu trên trình duyệt và địa chỉ website này. Sao lưu trước khi đổi thiết bị, đổi địa chỉ hoặc xóa dữ liệu web. Thông báo thiết bị cần được cấp quyền; âm thanh phụ thuộc trình duyệt.</p></details></section>
+
+
+
+
+
+
+
+
+
+        <p class="disclaimer">Dữ liệu thị trường Binance · Giao dịch giả lập</p>
+      <details class="advanced-panel card" id="advancedPanel"><summary>Phân tích nâng cao <span>Short / Swing · S/R</span></summary><div class="hero card">
+
+
+          <div class="signal-row">
+            <div id="signalBadge" class="signal wait">WAIT</div>
+            <div>
+              <div id="scoreText" class="score">Score --</div>
+              <div id="timeframes" class="timeframes">--</div>
+            </div>
+          </div>
+
+          <div id="planHint" class="plan-hint">Đang tải dữ liệu...</div>
+
+          <div class="inline-plan">
+            <div id="inlinePlanTitle" class="inline-plan-title">WAIT · KẾ HOẠCH</div>
+            <div class="metrics inline-plan-metrics">
+              <div><span>Entry / Vùng canh</span><strong id="entryValue">--</strong></div>
+              <div><span>Stop Loss</span><strong id="slValue">--</strong></div>
+              <div><span>TP1</span><strong id="tp1Value">--</strong></div>
+              <div><span>TP2</span><strong id="tp2Value">--</strong></div>
+              <div><span>TP3</span><strong id="tp3Value">--</strong></div>
+              <div><span>Invalidation</span><strong id="invalidValue">--</strong></div>
+            </div>
+            <div id="triggerText" class="subnote inline-plan-note"></div>
+            <div id="breakoutText" class="subnote inline-plan-note"></div>
+          </div>
+        </div><div class="grid-2">
           <div class="card levels-card">
             <div class="section-title">Hỗ trợ / Kháng cự</div>
             <div class="levels-cols">
@@ -188,29 +181,27 @@
               </div>
             </div>
           </div>
-        </div>
-
-        <div class="card reasons-card">
+        </div><div class="card reasons-card">
           <div class="section-title">Lý do tín hiệu</div>
           <div id="reasonsList" class="reasons"></div>
-        </div>
+        </div></details></section>
+    </section>
+  </main>
 
-        <div class="card install-card">
+
+
+
+
+
+
+<dialog class="settings-sheet" id="appSettings"><div class="sheet-head"><div><span class="eyebrow">WORKSPACE</span><h2>Cài đặt</h2></div><button id="appSettingsClose" class="icon-btn" aria-label="Đóng cài đặt">×</button></div><p class="settings-caption">Chế độ phân tích nâng cao</p><div class="segmented" role="tablist" aria-label="Chọn chế độ phân tích">
+        <button id="modeSwing" class="seg-btn" data-mode="swing">Dài hạn</button>
+        <button id="modeShort" class="seg-btn active" data-mode="short">Ngắn hạn</button>
+      </div><p class="subnote">Bộ RSI và Paper Trading sử dụng quy tắc riêng. Chế độ này áp dụng cho kế hoạch Short/Swing trong phần nâng cao.</p><div class="card install-card">
           <div>
             <strong>Cài như app trên iPhone</strong>
             <div class="muted">Safari → Chia sẻ → Thêm vào Màn hình chính.</div>
           </div>
           <button id="installBtn" class="primary hidden">Cài ứng dụng</button>
-        </div>
-
-        <p class="disclaimer">Công cụ phân tích kỹ thuật, không phải khuyến nghị đầu tư. Dữ liệu lấy từ Binance public market data.</p>
-      </section>
-    </section>
-  </main>
-
-  <script src="./rsi-mtf.js?v=327" defer></script>
-  <script src="./paper-trading.js?v=327" defer></script>
-  <script src="./paper-ui.js?v=327" defer></script>
-  <script src="./app.js?v=327" defer></script>
-</body>
-</html>
+        </div><p class="version-tag">v3.3.0 · Mobile workspace</p></dialog><nav class="bottom-nav" aria-label="Điều hướng chính"><button type="button" data-section="watchlist" aria-label="Đến Watchlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"></path></svg><span>Watchlist</span></button><button type="button" data-section="chartSection" aria-label="Đến Chart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19h16M6 14V8m4 7V4m4 13V8m4 5V5"></path></svg><span>Chart</span></button><button type="button" data-section="rsiMtf" aria-label="Đến RSI"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"></path></svg><span>RSI</span></button><button type="button" data-section="paperPanel" aria-label="Đến Paper"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3"></rect><path d="M16 11h5M5 6V4h13"></path></svg><span>Paper</span><i id="paperNavBadge" hidden="">1</i></button></nav><script src="./rsi-mtf.js?v=330" defer=""></script><script src="./paper-trading.js?v=330" defer=""></script><script src="./remote-paper.js?v=330" defer=""></script><script src="./paper-ui.js?v=330" defer=""></script><script src="./mobile-ui.js?v=330" defer=""></script><script src="./app.js?v=330" defer=""></script>
+</body></html>

@@ -1,3 +1,18 @@
+# v3.3.0 — Mobile Workspace & Paper 24/7
+
+Giao diện tập trung **Watchlist → Chart → RSI 5 khung → Paper Trading**, có điều hướng dưới cho điện thoại; thông tin phụ nằm trong phần mở rộng. Tự vào lệnh mặc định bật, lưu trạng thái bật/tắt; giữ sổ paper cũ.
+
+Có thêm máy chủ Node.js + SQLite, bộ cài Docker/Caddy và Web Push để tiếp tục xử lý khi đóng trình duyệt **sau khi bạn triển khai và kết nối máy chủ HTTPS**. GitHub Pages riêng lẻ vẫn chỉ chạy bot trong trang. Hệ điều hành cần bạn cấp quyền thông báo một lần.
+
+- [Cập nhật giao diện và dùng app](DEPLOY_v3.3.0.md)
+- [Cài máy chủ 24/7](server/README_VI.md)
+
+Không có máy chủ/ngân sách/hosting nào được tạo tự động. Không có API key Binance hoặc lệnh tiền thật. Không upload file `.env`, `server/data` hoặc `node_modules` lên GitHub.
+
+Các ghi chú bên dưới là lịch sử phiên bản, không thay thế hướng dẫn v3.3.0.
+
+---
+
 # v3.2.7 — RSI Auto Paper
 
 Thêm **tự vào lệnh giả lập** khi RSI 5 khung xác nhận mới, kèm TP/SL, vốn ảo, phí/trượt giá, thông báo mở/đóng lệnh, lịch sử chi tiết và xuất CSV/JSON. Mặc định tự mở lệnh tắt; mỗi lần mở lại trang cần bật lại. Không kết nối tài khoản hay đặt lệnh thật.

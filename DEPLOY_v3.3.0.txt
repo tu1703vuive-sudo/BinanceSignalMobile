@@ -1,3 +1,5 @@
+GHI CHU CU: Huong dan hien tai nam trong DEPLOY_v3.3.0.md.
+
 BinanceSignalMobile v3.3.0
 
 Upload de len ROOT repo GitHub Pages:

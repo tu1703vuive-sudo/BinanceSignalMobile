@@ -1,0 +1,10 @@
+{
+  "base_commit": "77cccf0a8952b47ba792906120bd38fdca462c33",
+  "short_swing_sr_original_region_unchanged": true,
+  "shared_strategy_modules_unchanged": {
+    "rsi-mtf.js": "0c041edcb6a9dade7d49b733199f74ceace06e4b7ba8717ca017c8e2e2aadd08",
+    "paper-trading.js": "edebc3c953205ec9c7ddc4223bfb0a163165e290ed5f3d5fbc18867c9f6af902"
+  },
+  "paper_storage_key_preserved": "bsm_paper_rsi_v1",
+  "auto_preference_persisted": true
+}

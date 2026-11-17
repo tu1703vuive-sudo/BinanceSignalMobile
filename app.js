@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='3.2.7';
+const APP_VERSION='3.3.0';
 const RSI_MTF_TIMEFRAMES=RsiMtf.FRAMES.map(f=>f.tf);
 const CHART_INDICATOR_VERSION='indicator-settings-v1';
 const DATA_ENGINE_VERSION='integrity-guard-v1';
@@ -51,11 +51,11 @@ function loadMarketData(market){
 }
 const initialMarket='futures';
 const initialMarketData=loadMarketData(initialMarket);
-const DEFAULT_CHART_LAYERS=Object.freeze({rsi:true,volume:true,sr:true,trade:true,crosshair:true});
+const DEFAULT_CHART_LAYERS=Object.freeze({rsi:false,volume:true,sr:false,trade:false,crosshair:true});
 function loadChartLayers(){
   try{
     let raw=JSON.parse(localStorage.getItem('bsm_chart_layers')||'{}');
-    return {...DEFAULT_CHART_LAYERS,...Object.fromEntries(Object.keys(DEFAULT_CHART_LAYERS).map(k=>[k,raw[k]!==false]))};
+    return {...DEFAULT_CHART_LAYERS,...Object.fromEntries(Object.keys(DEFAULT_CHART_LAYERS).map(k=>[k,typeof raw[k]==='boolean'?raw[k]:DEFAULT_CHART_LAYERS[k]]))};
   }catch{return {...DEFAULT_CHART_LAYERS}}
 }
 const state={
@@ -827,13 +827,28 @@ function connectTicker(){
   };
 }
 function setConn(s){els.conn.classList.toggle('online',s==='online');els.conn.classList.toggle('offline',s==='offline');els.conn.querySelector('span:last-child').textContent=s==='online'?'Realtime':s==='connecting'?'Đang kết nối':'Mất kết nối'}
+let watchStructure='';
 function renderWatchlist(){
-  els.count.textContent=`${state.symbols.length} cặp · ${marketLabel()}`;let syms=[...state.symbols].sort((a,b)=>(state.favorites.has(b)-state.favorites.has(a))||a.localeCompare(b));
-  els.watch.innerHTML=syms.map(s=>{let t=state.tickers.get(s),active=s===state.selected?' active':'',fav=state.favorites.has(s)?' on':'';return `<div class="watch-item${active}" data-symbol="${s}"><button class="star${fav}" data-star="${s}" aria-label="Yêu thích">★</button><div><div class="wi-symbol">${s.replace('USDT','/USDT')}</div><div class="wi-change ${t&&t.change>=0?'up':'down'}">${t?pct(t.change):'--'}</div></div><div class="wi-price">${t?fmt(t.price):'--'}</div><button class="delete-coin" data-delete="${s}" aria-label="Xóa ${s}" title="Xóa coin">×</button></div>`}).join('');
-  els.watch.querySelectorAll('[data-symbol]').forEach(x=>x.addEventListener('click',e=>{if(e.target.closest('[data-star],[data-delete]'))return;selectSymbol(x.dataset.symbol)}));
-  els.watch.querySelectorAll('[data-star]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();let s=b.dataset.star;state.favorites.has(s)?state.favorites.delete(s):state.favorites.add(s);persist();renderWatchlist()}));
-  els.watch.querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();removeSymbol(b.dataset.delete)}));
+  els.count.textContent=`${state.symbols.length} coin`;
+  const syms=[...state.symbols].sort((a,b)=>(state.favorites.has(b)-state.favorites.has(a))||a.localeCompare(b)),structure=syms.join('|');
+  if(structure!==watchStructure){
+    watchStructure=structure;
+    els.watch.innerHTML=syms.map(s=>`<div class="watch-item" data-symbol="${s}"><button class="star" data-star="${s}" aria-label="Yêu thích ${s}">★</button><button type="button" class="wi-select" aria-label="Theo dõi ${s}"><span class="wi-symbol">${s.replace('USDT','')}</span><span class="wi-price">--</span><span class="wi-change">--</span></button><button class="delete-coin" data-delete="${s}" aria-label="Xóa ${s}">×</button></div>`).join('');
+  }
+  for(const item of els.watch.querySelectorAll('[data-symbol]')){
+    const symbol=item.dataset.symbol,t=state.tickers.get(symbol),active=symbol===state.selected;
+    item.classList.toggle('active',active);item.querySelector('.wi-select').setAttribute('aria-pressed',String(active));
+    const price=item.querySelector('.wi-price'),change=item.querySelector('.wi-change'),star=item.querySelector('.star');
+    const value=t?fmt(t.price):'--',delta=t?pct(t.change):'--';if(price.textContent!==value)price.textContent=value;if(change.textContent!==delta)change.textContent=delta;
+    change.className='wi-change '+(t?(t.change>=0?'up':'down'):'');star.classList.toggle('on',state.favorites.has(symbol));
+  }
 }
+els.watch.addEventListener('click',e=>{
+  const star=e.target.closest('[data-star]'),del=e.target.closest('[data-delete]'),item=e.target.closest('[data-symbol]');
+  if(star){const s=star.dataset.star;state.favorites.has(s)?state.favorites.delete(s):state.favorites.add(s);persist();renderWatchlist()}
+  else if(del)removeSymbol(del.dataset.delete);else if(item)selectSymbol(item.dataset.symbol);
+});
+els.watch.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('[data-symbol]')){e.preventDefault();selectSymbol(e.target.dataset.symbol)}});
 function renderSelectedTicker(){let t=state.tickers.get(state.selected);els.symbol.textContent=state.selected;els.price.textContent=t?fmt(t.price):'--';els.change.textContent=t?pct(t.change):'--';els.change.className='change '+(t&&t.change>=0?'up':'down')}
 function signalClass(k){return k==='LONG'?'long':k==='SHORT'?'short':k.startsWith('WATCH')?'watch':'wait'}
 function renderAnalysis(a){
@@ -1071,7 +1086,7 @@ function drawChart(candles,a){
   drawRsiPanel(candles);
   renderDataHealthBadge();
 }
-async function selectSymbol(s){state.selected=s;state.candles={};state.liveKlines={};persist();renderWatchlist();renderSelectedTicker();connectKlines();await analyzeSelected()}
+async function selectSymbol(s){paperUi?.selectedChanged?.(s);state.selected=s;state.candles={};state.liveKlines={};persist();renderWatchlist();renderSelectedTicker();connectKlines();await analyzeSelected()}
 async function removeSymbol(s){
   if(state.symbols.length<=1){alert('Cần giữ lại ít nhất 1 coin trong danh sách.');return}
   if(!confirm(`Xóa ${s.replace('USDT','/USDT')} khỏi danh sách?`))return;
@@ -1118,6 +1133,7 @@ if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{let
   if(state.mode==='short') state.chartTf='4h';
   els.swing.classList.toggle('active',state.mode==='swing');els.short.classList.toggle('active',state.mode==='short');
   updateTimeframeButtons();syncChartSettingsUI();renderWatchlist();renderSelectedTicker();setDataHealth('syncing','Đang khởi tạo dữ liệu');connectTicker();connectKlines();
+  MobileUI.init();
   renderRsiMtf();
   paperUi?.resume();
   try{let t=await validateSymbol(state.selected,state.market);state.tickers.set(state.selected,{price:t.price,change:t.change});renderWatchlist();renderSelectedTicker()}catch{}

@@ -1,5 +1,5 @@
-const CACHE='binance-signal-v3-2-7-auto-paper';
-const ASSETS=['./','./index.html','./styles.css?v=327','./rsi-mtf.js?v=327','./paper-trading.js?v=327','./paper-ui.js?v=327','./app.js?v=327','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE='binance-signal-v3-3-0-mobile-cloud';
+const ASSETS=['./','./index.html','./styles.css?v=330','./rsi-mtf.js?v=330','./paper-trading.js?v=330','./remote-paper.js?v=330','./paper-ui.js?v=330','./mobile-ui.js?v=330','./app.js?v=330','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 
 self.addEventListener('install',e=>e.waitUntil(
   caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())
@@ -52,4 +52,11 @@ self.addEventListener('notificationclick',e=>{
     if(client)return client.focus();
     return self.clients.openWindow(url);
   }));
+});
+
+self.addEventListener('push',e=>{
+  let data={};try{data=e.data?.json()||{}}catch{}
+  const title=typeof data.title==='string'?data.title.slice(0,150):'Signal · Paper Trading';
+  const body=typeof data.body==='string'?data.body.slice(0,600):'Có cập nhật mới từ bot giả lập.';
+  e.waitUntil(self.registration.showNotification(title,{body,tag:typeof data.id==='string'?data.id:'signal-paper',icon:'./icons/icon-192.png',badge:'./icons/icon-192.png',data:{at:data.at||Date.now()}}));
 });

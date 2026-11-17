@@ -1,12 +1,12 @@
 {
-  "name": "Binance Signal",
-  "short_name": "Binance Signal",
+  "name": "Signal · Futures Workspace",
+  "short_name": "Signal",
   "description": "Binance Signal Market Monitor",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#05080c",
-  "theme_color": "#0b0f14",
+  "background_color": "#080c12",
+  "theme_color": "#080c12",
   "icons": [
     {
       "src": "./icons/icon-192.png",

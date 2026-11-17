@@ -7,13 +7,13 @@ const root=path.resolve(__dirname,'..'),KEY='bsm_paper_rsi_v1';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(fn){for(let i=0;i<300;i++){if(fn())return;await sleep(10)}throw new Error('Timed out: '+fn.toString())}
 const shared=()=>{const map=new Map();let queue=Promise.resolve();return {map,storage:{getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,String(v)),removeItem:k=>map.delete(k)},locks:{request:(_name,fn)=>{const result=queue.then(()=>fn({name:_name}));queue=result.catch(()=>{});return result}}}}
-function harness({store=shared(),start=Date.UTC(2026,10,16,8,0,1),recovery='safe',locks=true,seed=null}={}){
+function harness({store=shared(),start=Date.UTC(2026,10,16,8,0,1),recovery='safe',locks=true,seed=null,remoteEndpoint=null}={}){
   if(seed)store.storage.setItem(KEY,JSON.stringify(seed));
   const errors=[],notes=[],requests=[],downloads=[],v=new VirtualConsole();v.on('jsdomError',e=>errors.push(String(e)));
   const dom=new JSDOM(fs.readFileSync(path.join(root,'index.html'),'utf8'),{runScripts:'outside-only',pretendToBeVisual:true,url:'https://test.invalid/',virtualConsole:v}),w=dom.window;
   let clock=start;
   Object.defineProperty(w,'localStorage',{value:store.storage});if(locks)Object.defineProperty(w.navigator,'locks',{value:store.locks});
-  w.Date.now=()=>clock;w.AbortController=AbortController;w.confirm=()=>true;
+  w.Date.now=()=>clock;w.AbortController=AbortController;w.AbortSignal=AbortSignal;w.confirm=()=>true;
   w.URL.createObjectURL=blob=>{assert.ok(blob.size>0);return 'blob:test'};w.URL.revokeObjectURL=()=>{};
   w.HTMLAnchorElement.prototype.click=function(){downloads.push(this.download)};
   class Notification {static permission='default';static async requestPermission(){Notification.permission='granted';return 'granted'}constructor(title,opts){notes.push({title,...opts})}}
@@ -42,10 +42,10 @@ function harness({store=shared(),start=Date.UTC(2026,10,16,8,0,1),recovery='safe
       return [t,''+o,''+(c+.2),''+(o-.2),''+c,'1000',end];
     });
   }
-  w.fetch=async url=>{const u=new URL(url);requests.push(url);if(u.pathname.endsWith('/klines'))return {ok:true,json:async()=>rows(u.searchParams.get('interval'),Number(u.searchParams.get('startTime')))};return {ok:true,json:async()=>({lastPrice:'105.2',priceChangePercent:'1'})}};
+  w.fetch=async (url,options)=>{if(remoteEndpoint&&url.startsWith(remoteEndpoint))return fetch(url,options);const u=new URL(url);requests.push(url);if(u.pathname.endsWith('/klines'))return {ok:true,json:async()=>rows(u.searchParams.get('interval'),Number(u.searchParams.get('startTime')))};return {ok:true,json:async()=>({lastPrice:'105.2',priceChangePercent:'1'})}};
   class Socket{constructor(url){this.url=url;this.readyState=0;w.setTimeout(()=>{if(this.readyState!==3){this.readyState=1;this.onopen?.({})}},2)}close(){this.readyState=3;this.onclose?.({})}}
   w.WebSocket=Socket;w.addEventListener('error',e=>errors.push(String(e.error)));
-  for(const file of ['rsi-mtf.js','paper-trading.js','paper-ui.js','app.js'])w.eval(fs.readFileSync(path.join(root,file),'utf8')+(file==='app.js'?'\nwindow.__qaEval=(code)=>eval(code);':''));
+  for(const file of ['rsi-mtf.js','paper-trading.js','remote-paper.js','paper-ui.js','mobile-ui.js','app.js'])w.eval(fs.readFileSync(path.join(root,file),'utf8')+(file==='app.js'?'\nwindow.__qaEval=(code)=>eval(code);':''));
   const read=s=>w.__qaEval(s),el=id=>w.document.getElementById(id),ledger=()=>JSON.parse(store.storage.getItem(KEY));
   function arm(){el('paperAuto').checked=true;el('paperAuto').dispatchEvent(new w.Event('change'))}
   function newSignal(){
@@ -58,10 +58,11 @@ function harness({store=shared(),start=Date.UTC(2026,10,16,8,0,1),recovery='safe
   }
   return {w,dom,read,el,ledger,store,errors,notes,requests,downloads,arm,newSignal,setClock:n=>clock=n,getClock:()=>clock,close:()=>w.close()};
 }
-(async()=>{
+module.exports={harness,shared,until};
+if(require.main===module)(async()=>{
   const h=harness();await until(()=>h.el('rsiMtfScore').textContent.includes('/ 100'));
-  assert.equal(h.el('paperAuto').checked,false);assert.equal(h.ledger(),null);
-  assert.equal(h.el('paperEquity').textContent,'10,000.00');
+  assert.equal(h.el('paperAuto').checked,true);assert.equal(h.ledger(),null);
+  assert.equal(h.el('paperEquity').textContent,'10,000.00');assert.equal(h.el('advancedPanel').open,false);assert.equal(h.el('watchManage').hidden,true);assert.deepEqual([...h.w.document.querySelector('.content').children].slice(0,3).map(e=>e.id),['chartSection','rsiMtf','paperPanel']);const stableWatch=h.el('watchList').firstElementChild;h.read("state.tickers.set('BTCUSDT',{price:123,change:1});renderWatchlist()");assert.equal(h.el('watchList').firstElementChild,stableWatch);h.el('watchManageBtn').click();assert.equal(h.el('watchManage').hidden,false);h.el('watchManageBtn').click();assert.equal(h.el('watchManage').hidden,true);
   await h.el('paperNotify').onclick();await until(()=>h.notes.length===1);
   h.arm();h.read(`paperUi.onQuote(state.selected,105.2,${h.getClock()});renderRsiMtf()`);await sleep(20);
   assert.equal(h.ledger(),null,'arming does not trade an existing confirmation');
@@ -80,8 +81,8 @@ function harness({store=shared(),start=Date.UTC(2026,10,16,8,0,1),recovery='safe
   assert.equal(h.el('paperHistoryCount').textContent,'1');
   h.el('paperCsv').click();h.el('paperBackup').click();assert.deepEqual(h.downloads,['BinanceSignal-Paper-History.csv','BinanceSignal-Paper-Backup.json']);
   const reload=harness({store:h.store,start:h.getClock()});await until(()=>reload.el('rsiMtfScore').textContent.includes('/ 100'));
-  assert.equal(reload.el('paperAuto').checked,false);assert.equal(reload.ledger().trades.length,1);
-  assert.equal(reload.el('paperHistoryCount').textContent,'1');assert.deepEqual(reload.errors,[]);reload.close();
+  assert.equal(reload.el('paperAuto').checked,true);assert.equal(reload.ledger().trades.length,1);
+  assert.equal(reload.el('paperHistoryCount').textContent,'1');reload.el('paperAuto').checked=false;await reload.el('paperAuto').onchange({target:reload.el('paperAuto')});assert.equal(JSON.parse(reload.store.storage.getItem('bsm_paper_prefs_v1')).auto,false);assert.deepEqual(reload.errors,[]);reload.close();
   assert.deepEqual(h.errors,[]);h.close();
   // Reload an open order after missing minutes: catch-up resolves both-hit candles as SL.
   const r=harness({seed:openBackup,start:t.entryAt+180000,recovery:'both'});
@@ -110,5 +111,5 @@ function harness({store=shared(),start=Date.UTC(2026,10,16,8,0,1),recovery='safe
   assert.equal(quota.ledger(),null);assert.equal(quota.el('paperAuto').checked,false);assert.equal(quota.notes.length,0);quota.close();
   const unsupported=harness({locks:false});await until(()=>unsupported.el('rsiMtfScore').textContent.includes('/ 100'));
   assert.equal(unsupported.el('paperAuto').disabled,true);unsupported.close();
-  console.log(JSON.stringify({passed:['default off and correct virtual capital','permission/test notification','old signal ignored on arm','new confirmed signal opens with 5-frame audit','duplicate renders do not re-enter','open coin monitored after switch/removal','TP closes with toast and OS notification','CSV and JSON download actions','history persists and auto resets on reload','1m offline catch-up with conservative SL','missing recovery candles never fabricate exit','multi-tab race creates exactly one entry','manual close and hidden-tab entry guard','storage quota blocks entry and acknowledgment','unsupported lock API disables auto'],runtime_errors:[]},null,2));
+  console.log(JSON.stringify({passed:['default on and correct virtual capital','permission/test notification','old signal ignored on arm','new confirmed signal opens with 5-frame audit','duplicate renders do not re-enter','open coin monitored after switch/removal','TP closes with toast and OS notification','CSV and JSON download actions','history and auto preference persist on reload','1m offline catch-up with conservative SL','missing recovery candles never fabricate exit','multi-tab race creates exactly one entry','manual close and hidden-tab entry guard','storage quota blocks entry and acknowledgment','unsupported lock API disables auto'],runtime_errors:[]},null,2));
 })().catch(e=>{console.error(e);process.exit(1)});
