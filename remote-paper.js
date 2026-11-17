@@ -10,8 +10,10 @@
   if(previous){const closed=next.ledger.trades.at(-1);if(closed&&closed.id!==lastTrade)callback.event?.({type:'CLOSE',trade:closed});const t=next.ledger.open;if(t&&t.id!==lastOpen)callback.event?.({type:'OPEN',trade:t})}
   lastOpen=next.ledger.open?.id||null;lastTrade=next.ledger.trades.at(-1)?.id||null;callback.update?.();
  }
- async function refresh(){if(!configured()||busy)return;busy=true;const generation=seq;clearTimeout(timer);try{const n=await request('/api/state'+(state?'?tradesSince='+state.ledger.trades.length:''));if(generation===seq){apply(n);if(!pushRegistered)void autoPush()}}catch(e){if(generation===seq){connected=false;error=e.message;callback.update?.()}}finally{busy=false;if(generation===seq&&configured())timer=setTimeout(()=>void refresh(),3000)}}
- async function connect(url,token){const target={url:normalize(url),token:token.trim()};if(target.token.length<24)throw new Error('Mã kết nối quá ngắn');const next=await request('/api/state',null,target);if(!next.ledger||typeof next.autoEnabled!=='boolean')throw new Error('Đây không phải máy chủ Signal Paper');clearTimeout(timer);seq++;cfg=target;state=null;pushRegistered=false;lastPushTry=0;localStorage.setItem(KEY,JSON.stringify(cfg));apply(next);void autoPush();timer=setTimeout(()=>void refresh(),3000);return next}
+ const pollDelay=()=>state?.platform==='cloudflare'?10000:3000;
+ function scheduleRefresh(){clearTimeout(timer);if(configured()&&document.visibilityState!=='hidden')timer=setTimeout(()=>void refresh(),pollDelay())}
+ async function refresh(){if(!configured()||busy)return;busy=true;const generation=seq;clearTimeout(timer);try{const n=await request('/api/state'+(state?'?tradesSince='+state.ledger.trades.length:''));if(generation===seq){apply(n);if(!pushRegistered)void autoPush()}}catch(e){if(generation===seq){connected=false;error=e.message;callback.update?.()}}finally{busy=false;if(generation===seq)scheduleRefresh()}}
+ async function connect(url,token){const target={url:normalize(url),token:token.trim()};if(target.token.length<24)throw new Error('Mã kết nối quá ngắn');const next=await request('/api/state',null,target);if(!next.ledger||typeof next.autoEnabled!=='boolean')throw new Error('Đây không phải máy chủ Signal Paper');clearTimeout(timer);seq++;cfg=target;state=null;pushRegistered=false;lastPushTry=0;localStorage.setItem(KEY,JSON.stringify(cfg));apply(next);void autoPush();scheduleRefresh();return next}
  async function action(path,body){if(!connected)throw new Error('Máy chủ chưa kết nối; không thay đổi sổ lệnh');const next=await request(path,body);apply(next);return next}
  function bytes(s){const binary=atob(s.replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(binary,c=>c.charCodeAt(0))}
  async function push({test=false,ask=true}={}){
@@ -25,6 +27,7 @@
  }
  async function autoPush(){if(Date.now()-lastPushTry<60000)return;if('Notification'in root&&Notification.permission==='granted'){lastPushTry=Date.now();try{await push({ask:false})}catch{}}}
  async function disconnect(){if(state?.ledger.open)throw new Error('Máy chủ đang có lệnh. Tắt tự mở mới hoặc đóng lệnh trước khi chuyển về trình duyệt.');await action('/api/auto',{enabled:false});clearTimeout(timer);seq++;cfg=null;state=null;connected=false;localStorage.removeItem(KEY);callback.update?.()}
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')clearTimeout(timer);else if(configured())void refresh()});
  if(configured())setTimeout(()=>{void refresh();void autoPush()},0);
  return {configured,view:()=>({state,connected,error,cfg}),connect,refresh,action,disconnect,push};
 }}})(globalThis);

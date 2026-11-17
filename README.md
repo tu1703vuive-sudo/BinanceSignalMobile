@@ -1,3 +1,10 @@
+# v3.4.0 — Cloudflare Free trial
+
+Bot paper độc lập với điện thoại, lưu SQLite và gửi Web Push. Đọc **[BAT_DAU_CLOUDFLARE.md](BAT_DAU_CLOUDFLARE.md)**. Windows: chạy `CAI_CLOUDFLARE_WINDOWS.cmd`, đăng nhập Cloudflare rồi lấy URL/mã trong `cloudflare/connection.txt`. Giữ frontend trên GitHub Pages. TP/SL cloud dùng nến đóng 1 phút. Bản mã nguồn cần triển khai vào tài khoản của bạn trước khi chạy 24/7.
+
+
+---
+
 # v3.3.0 — Mobile Workspace & Paper 24/7
 
 Giao diện tập trung **Watchlist → Chart → RSI 5 khung → Paper Trading**, có điều hướng dưới cho điện thoại; thông tin phụ nằm trong phần mở rộng. Tự vào lệnh mặc định bật, lưu trạng thái bật/tắt; giữ sổ paper cũ.
