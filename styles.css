@@ -18,3 +18,7 @@
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
 
 .wi-select{display:flex;flex-direction:column;align-items:flex-start;gap:4px;width:100%;min-height:65px;text-align:left;padding:0;border:0;border-radius:6px;background:transparent;color:inherit}.wi-select .wi-price{order:1}.wi-select .wi-change{order:2;margin-top:0}.watchlist.editing .wi-select{grid-column:2;grid-row:1/3}.watch-item:focus-within{border-color:#70d2b0}
+.rsi-v41-rules{margin-top:10px;font-size:11px;line-height:1.6}
+.rsi-v41-rules details{padding:7px 0;border-top:1px solid var(--line,#253640)}
+.rsi-v41-rules summary{cursor:pointer;font-weight:600}
+.rsi-v41-rules ul{padding-left:16px;margin:6px 0;color:var(--muted,#8aa0ad)}

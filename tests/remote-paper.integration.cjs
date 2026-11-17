@@ -11,6 +11,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  try{
   await until(()=>h.el('remoteStatusText').textContent.includes('Máy chủ 24/7'));
   assert.equal(h.el('paperAuto').checked,true);assert.equal(h.ledger(),null);
+  const armedAt=engine.read().armedAt;await h.read("selectSymbol('ETHUSDT')");assert.equal(engine.read().symbol,'BTCUSDT');assert.equal(engine.read().armedAt,armedAt,'chart changes never rearm or retarget the server bot');
   h.newSignal();await sleep(30);assert.equal(h.ledger(),null,'configured cloud mode never opens a second local order');
   // User changes a setting while polling: draft must not be overwritten.
   h.el('paper-notional').value='150';h.el('paper-notional').dispatchEvent(new h.w.Event('input'));

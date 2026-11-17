@@ -14,44 +14,38 @@ test('reference Wilder smoothing and flat/one-way markets',()=>{
   assert.equal(rsi.series(Array.from({length:20},(_,i)=>i)).at(-1),100);
   assert.equal(rsi.series(Array.from({length:20},(_,i)=>20-i)).at(-1),0);
 });
-test('screenshot has -50 bias, without short confirmation',()=>{
-  const out=rsi.evaluate(snapshot([50.3,24.3,32.2,49.5,47.8]));
-  assert.equal(out.score,-50);assert.equal(out.signal,'WATCH SHORT');
+function frames(current={},previous={}){
+ const c={'1M':60,'1d':58,'4h':62,'1h':61,'15m':54,...current},p={'1M':59,'1d':57,'4h':61,'1h':58,'15m':48,...previous};
+ return Object.fromEntries(rsi.FRAMES.map(f=>[f.tf,{confirmed:c[f.tf],previous:p[f.tf],ready:true,healthy:true}]));
+}
+test('all six v4.1 strategy/side entry examples match original rules',()=>{
+ const examples=[['MOMENTUM','LONG',{},{}],['MOMENTUM','SHORT',{'1M':35,'1d':43,'4h':40,'1h':41,'15m':47},{'1h':44,'15m':54}],['REVERSAL','LONG',{'1M':38,'1d':39,'4h':43,'1h':39,'15m':33},{'1h':35,'15m':26}],['REVERSAL','SHORT',{'1M':62,'1d':62,'4h':59,'1h':59,'15m':66},{'1h':62,'15m':74}],['BREAKOUT','LONG',{'15m':75},{'15m':68}],['BREAKOUT','SHORT',{'1M':37,'1d':40,'4h':34,'1h':35,'15m':26},{'1h':38,'15m':33}]];
+ for(const [strategy,side,c,p] of examples){const r=rsi.evaluate(frames(c,p));assert.equal(r.signal,side,strategy);assert.equal(r.winner.strategy,strategy);assert.equal(r.winner.passed,5);assert.equal(r.winner.checks.every(c=>c.passed),true)}
 });
-test('confirmed short requires both higher frames and a fresh 15m crossing',()=>{
-  assert.equal(rsi.evaluate(snapshot([50,40,40,40,44],46)).signal,'SHORT');
-  assert.equal(rsi.evaluate(snapshot([50,40,40,40,44],44)).signal,'WATCH SHORT');
-  assert.equal(rsi.evaluate(snapshot([40,40,40,49,44],46)).signal,'WATCH SHORT');
+test('v4.1 monthly context boundary is <45 bearish, exactly 45 neutral',()=>{
+ assert.equal(rsi.classify(45),0);assert.equal(rsi.classify(44.999),-1);assert.equal(rsi.classify(55),1);
+ const a=rsi.evaluateSide(frames({'1M':38,'1d':39,'4h':43,'1h':39,'15m':33},{'1h':35,'15m':26}),'REVERSAL','LONG');assert.equal(a.allowed,true);assert.equal(a.riskPct,.15);
+ assert.equal(rsi.evaluateSide(frames({'1M':61,'1d':52}),'MOMENTUM','LONG').riskPct,.3);
 });
-test('long confirmation is symmetric, inclusive at 55/45',()=>{
-  assert.equal(rsi.evaluate(snapshot([50,60,55,55,55],54)).signal,'LONG');
-  assert.equal(rsi.evaluate(snapshot([50,40,45,45,45],46)).signal,'SHORT');
-  assert.equal(rsi.classify(54.999),0);assert.equal(rsi.classify(45.001),0);
+test('entry uses exact v4.1 cross, trend and overshoot filters rather than old score gate',()=>{
+ assert.equal(rsi.evaluate(frames({'15m':55},{'15m':53})).signal,'WAIT','no fresh crossing of 50');
+ assert.equal(rsi.evaluate(frames({'15m':66})).signal,'WAIT','momentum overshoot >65');
+ assert.equal(rsi.evaluate(frames({'1h':61},{'1h':61})).signal,'WAIT','flat 1H must not count as rising');
+ const f=frames({'1M':38,'1d':44,'15m':54});const result=rsi.evaluate(f);assert.equal(result.signal,'WAIT');assert.equal(result.evaluations.MOMENTUM.LONG.checks.at(-1).passed,false,'both day/month bearish veto momentum');
+ assert.equal(rsi.evaluateSide(frames({'15m':85},{'15m':69}),'BREAKOUT','LONG').allowed,true);
+ assert.equal(rsi.evaluateSide(frames({'15m':85.001},{'15m':69}),'BREAKOUT','LONG').allowed,false);
 });
-test('all neutral and mixed frames can wait; month alone cannot trigger',()=>{
-  assert.equal(rsi.evaluate(snapshot([50,50,50,50,50])).signal,'WAIT');
-  assert.equal(rsi.evaluate(snapshot([60,50,50,50,50])).score,10);
-  assert.equal(rsi.evaluate(snapshot([60,60,60,40,40])).signal,'WAIT');
+test('one winner by fixed priority; opposite directions always wait',()=>{
+ const a=rsi.arbitrate([{strategy:'MOMENTUM',side:'LONG'},{strategy:'REVERSAL',side:'LONG'},{strategy:'BREAKOUT',side:'LONG'}]);assert.equal(a.winner.strategy,'BREAKOUT');assert.equal(a.conflict,false);
+ assert.deepEqual(rsi.arbitrate([{strategy:'REVERSAL',side:'LONG'},{strategy:'BREAKOUT',side:'SHORT'}]),{winner:null,conflict:true});
 });
-test('±35 score boundary; score is bounded by ±100',()=>{
-  assert.equal(rsi.evaluate(snapshot([60,50,50,60,50])).signal,'WATCH LONG');
-  assert.equal(rsi.evaluate(snapshot([40,50,50,40,50])).signal,'WATCH SHORT');
-  assert.equal(rsi.evaluate(snapshot([60,60,60,60,60])).score,100);
-  assert.equal(rsi.evaluate(snapshot([40,40,40,40,40])).score,-100);
+test('missing, unhealthy or invalid RSI blocks all strategies without reweighting',()=>{
+ for(const property of ['ready','healthy']){const f=frames();f['1M'][property]=false;const out=rsi.evaluate(f);assert.equal(out.score,null);assert.equal(out.signal,'WAIT');assert.deepEqual(out.missing,['1M'])}
+ const f=frames();delete f['1M'];assert.equal(rsi.evaluate(f).signal,'WAIT');
 });
-test('missing/short-history/corrupt frames block the whole score, no reweighting',()=>{
-  for(const property of ['ready','healthy']){
-    const input=snapshot([60,60,60,60,60]);input['1M'][property]=false;
-    const out=rsi.evaluate(input);assert.equal(out.score,null);assert.equal(out.signal,'WAIT');assert.deepEqual(out.missing,['1M']);
-  }
-  const input=snapshot([60,60,60,60,60]);delete input['1M'];
-  assert.equal(rsi.evaluate(input).score,null);
-});
-test('unfinished candle only changes live display, not closed decision',()=>{
-  const candles=Array.from({length:16},(_,i)=>({close:100+i,closeTime:i*1000}));
-  candles.push({close:1,closeTime:20000});
-  const a=rsi.frame(candles,16000);assert.equal(a.confirmed,100);assert.ok(a.live<50);assert.equal(a.ready,true);
-  candles.at(-1).close=200;
-  const b=rsi.frame(candles,16000);assert.equal(b.confirmed,a.confirmed);assert.equal(b.previous,a.previous);assert.equal(b.live,100);
-  assert.equal(rsi.frame(candles.slice(0,15),16000).ready,false);
+test('closed candle warmup matches source: 100 candles, monthly 30; live candle never enters',()=>{
+ const cs=Array.from({length:100},(_,i)=>({close:100+i,closeTime:i*1000}));cs.push({close:1,closeTime:200000});
+ const a=rsi.frame(cs,100000,'15m');assert.equal(a.confirmed,100);assert.equal(a.ready,true);assert.ok(a.live<50);
+ cs.at(-1).close=300;const b=rsi.frame(cs,100000,'15m');assert.equal(b.confirmed,a.confirmed);assert.equal(b.previous,a.previous);assert.equal(b.live,100);
+ assert.equal(rsi.frame(cs.slice(0,99),100000,'15m').ready,false);assert.equal(rsi.frame(cs.slice(0,29),100000,'1M').ready,false);assert.equal(rsi.frame(cs.slice(0,30),100000,'1M').ready,true);
 });

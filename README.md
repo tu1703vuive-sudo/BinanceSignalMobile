@@ -1,3 +1,15 @@
+# v3.5.0 — RSI v4.1 làm bộ chính, chỉ BTCUSDT
+
+[Cập nhật Cloudflare và frontend](CAP_NHAT_v3.5.0_RSI_V41.md). Ba nhóm Reversal/Momentum/Breakout được chuyển từ mã Python v4.1 bạn cung cấp và kiểm tra độc lập. Giữ sổ, auto, thông báo, giá trị lệnh và SL/TP hiện có.
+
+---
+
+# v3.4.1 — Paper chỉ BTCUSDT
+
+Đọc [CAP_NHAT_v3.4.1_BTC.md](CAP_NHAT_v3.4.1_BTC.md) để cập nhật bản Cloudflare đang chạy. Chọn coin trên chart không đổi bot; các coin khác chỉ để xem. Giữ nguyên sổ, mã kết nối và khóa push. Chiến lược vẫn là RSI Momentum 5 khung.
+
+---
+
 # v3.4.0 — Cloudflare Free trial
 
 Bot paper độc lập với điện thoại, lưu SQLite và gửi Web Push. Đọc **[BAT_DAU_CLOUDFLARE.md](BAT_DAU_CLOUDFLARE.md)**. Windows: chạy `CAI_CLOUDFLARE_WINDOWS.cmd`, đăng nhập Cloudflare rồi lấy URL/mã trong `cloudflare/connection.txt`. Giữ frontend trên GitHub Pages. TP/SL cloud dùng nến đóng 1 phút. Bản mã nguồn cần triển khai vào tài khoản của bạn trước khi chạy 24/7.

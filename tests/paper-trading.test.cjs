@@ -14,6 +14,11 @@ test('only a fresh confirmation after arming can enter',()=>{
   assert.equal(core.acceptSignal(book,signal(),{armedAt:999000,now:1030001}).event,null);
   assert.ok(core.acceptSignal(book,signal(),{armedAt:999000,now:1000001}).event);
 });
+test('BTC-only entry policy rejects altcoins without changing cash, signal dedup or history',()=>{
+  const book=core.create();assert.equal(core.PAPER_SYMBOL,'BTCUSDT');
+  for(const symbol of ['ETHUSDT','SOLUSDT','BTCUSDC','btcusdt']){const r=core.acceptSignal(book,signal({symbol}),{armedAt:999000,now:1000001});assert.equal(r.event,null);assert.strictEqual(r.book,book);assert.deepEqual(book,core.create())}
+  assert.ok(core.acceptSignal(book,signal(),{armedAt:999000,now:1000001}).event);
+});
 test('reserve cash, apply entry slippage and preserve RSI audit',()=>{
   const b=open({feePct:.05,slippagePct:.02});closeTo(b.open.entry,100.02);closeTo(b.cash,9899.95);
   closeTo(b.open.qty,100/100.02);closeTo(b.open.sl,100.02*.99);closeTo(b.open.tp,100.02*1.02);

@@ -12,9 +12,10 @@ const decode=rows=>{if(!Array.isArray(rows))throw new Error('Binance trả dữ 
 export class CloudEngine{
   constructor(store,{now=Date.now,market}={}){
     this.store=store;this.now=now;this.market=market||this.fetchMarket.bind(this);
-    if(!store.get('account'))store.put('account',{ledger:core.create(),autoEnabled:true,symbol:'BTCUSDT',armedAt:now()});
+    if(!store.get('account'))store.put('account',{ledger:core.create(),autoEnabled:true,symbol:'BTCUSDT',armedAt:now(),strategyVersion:rsi.VERSION});
     this.runtime=store.get('runtime')||{health:{state:'starting',detail:'Đang khởi động Cloudflare'},frames:null,bucket:null,frameSymbol:null,retryAt:0,errors:0};
-    this.read();
+    const s=this.read();
+    if(s.symbol!==core.PAPER_SYMBOL||s.strategyVersion!==rsi.VERSION){s.symbol=core.PAPER_SYMBOL;s.strategyVersion=rsi.VERSION;s.armedAt=now();this.write(s);Object.assign(this.runtime,{frames:null,bucket:null,frameSymbol:null,retryAt:0,errors:0});this.saveRuntime()}
   }
   read(){const s=this.store.get('account');s.ledger=core.restore(s.ledger);return s}
   saveRuntime(){this.store.put('runtime',this.runtime)}
@@ -22,14 +23,14 @@ export class CloudEngine{
     s.ledger.revision++;
     this.store.atomic(()=>{
       this.store.put('account',s);
-      if(event){const t=event.trade,payload={id:t.id+'-'+event.type,title:event.type==='OPEN'?`PAPER · ${t.side} ${t.symbol}`:`PAPER · Đóng ${t.symbol} · ${t.reason}`,body:event.type==='OPEN'?`Giá ${t.entry.toPrecision(7)} · SL ${t.sl.toPrecision(7)} · TP ${t.tp.toPrecision(7)} · RSI ${t.score}`:`PnL ròng ${t.netPnl.toFixed(2)} USDT · nến đóng 1 phút`,at:this.now(),type:event.type,tradeId:t.id};this.store.enqueue(payload)}
+      if(event){const t=event.trade,payload={id:t.id+'-'+event.type,title:event.type==='OPEN'?`PAPER · ${t.side} ${t.symbol}${t.strategy?' · '+t.strategy:''}`:`PAPER · Đóng ${t.symbol} · ${t.reason}`,body:event.type==='OPEN'?`Giá ${t.entry.toPrecision(7)} · SL ${t.sl.toPrecision(7)} · TP ${t.tp.toPrecision(7)} · Bối cảnh ${t.score}`:`PnL ròng ${t.netPnl.toFixed(2)} USDT · nến đóng 1 phút`,at:this.now(),type:event.type,tradeId:t.id};this.store.enqueue(payload)}
     });
   }
   snapshot(){const s=this.read();return {...s,stats:core.stats(s.ledger),frames:this.runtime.frames,health:this.runtime.health,serverTime:this.now(),platform:'cloudflare',execution:'closed-1m',subscriptionCount:this.store.subscriptionCount()}}
   auto(enabled){if(typeof enabled!=='boolean')throw new Error('enabled phải là boolean');const s=this.read();if(enabled&&!s.autoEnabled)s.armedAt=this.now();s.autoEnabled=enabled;this.write(s)}
-  monitor(symbol){if(!/^[A-Z0-9]{1,30}USDT$/.test(symbol||''))throw new Error('Symbol không hợp lệ');const s=this.read();if(s.symbol!==symbol){s.symbol=symbol;s.armedAt=this.now();this.runtime.frames=null;this.runtime.bucket=null;this.runtime.retryAt=0;this.write(s);this.saveRuntime()}}
+  monitor(symbol){if(symbol!==core.PAPER_SYMBOL)throw new Error('Paper Trading chỉ chạy BTCUSDT; đổi coin trên chart không đổi bot');}
   configure(input){const s=this.read();s.ledger=core.configure(s.ledger,input);this.write(s)}
-  importBook(input){const s=this.read();if(s.ledger.open||s.ledger.trades.length)throw new Error('Cloud đã có lệnh; không ghi đè sổ hiện tại');s.ledger=core.restore(input);if(s.ledger.open)s.symbol=s.ledger.open.symbol;s.armedAt=this.now();this.write(s);this.runtime.retryAt=0;this.saveRuntime()}
+  importBook(input){const s=this.read();if(s.ledger.open||s.ledger.trades.length)throw new Error('Cloud đã có lệnh; không ghi đè sổ hiện tại');const ledger=core.restore(input);if(ledger.open&&ledger.open.symbol!==core.PAPER_SYMBOL)throw new Error('Đóng lệnh coin khác trong sổ cũ trước khi chuyển; cloud chỉ mở lệnh BTCUSDT');s.ledger=ledger;s.symbol=core.PAPER_SYMBOL;s.armedAt=this.now();this.write(s);this.runtime.retryAt=0;this.saveRuntime()}
   async fetchMarket(path){
     this.store.count('marketRequests');
     const response=await fetch('https://fapi.binance.com'+path,{signal:AbortSignal.timeout(8000)});
@@ -61,7 +62,7 @@ export class CloudEngine{
       let s=this.read(),now=this.now(),bucket=Math.floor(now/900000);
       if(s.autoEnabled&&(bucket!==rt.bucket||rt.frameSymbol!==s.symbol)){
         const symbol=s.symbol;
-        const entries=await Promise.all(TF.map(async tf=>{const cs=validate(decode(await this.market(`/fapi/v1/klines?symbol=${symbol}&interval=${tf}&limit=260`)),tf);return [tf,{...rsi.frame(cs,this.now()),healthy:cs.at(-1).closeTime>=this.now()-15000}]}));
+        const entries=await Promise.all(TF.map(async tf=>{const cs=validate(decode(await this.market(`/fapi/v1/klines?symbol=${symbol}&interval=${tf}&limit=450`)),tf);return [tf,{...rsi.frame(cs,this.now(),tf),healthy:cs.at(-1).closeTime>=this.now()-15000}]}));
         rt.frames=Object.fromEntries(entries);rt.frameSymbol=symbol;rt.bucket=bucket;rt.health.lastSignalCheck=this.now();
       }
       s=this.read();now=this.now();
@@ -69,7 +70,7 @@ export class CloudEngine{
         const result=rsi.evaluate(rt.frames),signalAt=rt.frames['15m'].closedAt+1;
         if(['LONG','SHORT'].includes(result.signal)&&signalAt>s.armedAt&&now-signalAt<=30000&&(s.ledger.lastSignals[s.symbol]||0)<signalAt){
           const p=await this.price(s.symbol);
-          const r=core.acceptSignal(s.ledger,{symbol:s.symbol,side:result.signal,price:p,signalAt,score:result.score,rsi:Object.fromEntries(TF.map(tf=>[tf,{confirmed:rt.frames[tf].confirmed,previous:rt.frames[tf].previous,closedAt:rt.frames[tf].closedAt}])),why:'RSI 5 khung nến đóng · Cloudflare · SL/TP theo nến đóng 1 phút'},{now:this.now(),armedAt:s.armedAt});s.ledger=r.book;this.write(s,r.event);
+          const r=core.acceptSignal(s.ledger,{symbol:s.symbol,side:result.signal,price:p,signalAt,score:result.score,strategyVersion:result.version,ruleSet:result.ruleSet,strategy:result.winner.strategy,checks:result.winner.checks,riskPctSuggested:result.winner.riskPct,rsi:Object.fromEntries(TF.map(tf=>[tf,{confirmed:rt.frames[tf].confirmed,previous:rt.frames[tf].previous,closedAt:rt.frames[tf].closedAt}])),why:result.winner.reason+' · Cloudflare · SL/TP nến đóng 1 phút'},{now:this.now(),armedAt:s.armedAt});s.ledger=r.book;this.write(s,r.event);
         }
       }
       rt.errors=0;rt.retryAt=0;rt.health={...rt.health,state:'live',detail:'Cloudflare · RSI 5 khung · SL/TP nến đóng 1 phút',lastTick:this.now()};

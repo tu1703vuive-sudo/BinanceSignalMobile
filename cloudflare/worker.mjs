@@ -1,7 +1,7 @@
 import {CloudEngine} from './engine.mjs';
 import {Store} from './store.mjs';
 import {buildPushPayload} from '@block65/webcrypto-web-push';
-const VERSION='3.4.0',MAX_BODY=2*1024*1024;
+const VERSION='3.5.0',MAX_BODY=2*1024*1024;
 const json=(value,status=200,headers={})=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});
 const hex=b=>Array.from(new Uint8Array(b),x=>x.toString(16).padStart(2,'0')).join('');
 const hash=async s=>hex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)));

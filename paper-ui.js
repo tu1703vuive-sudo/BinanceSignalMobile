@@ -5,7 +5,7 @@
     const core=root.PaperTrading,$=id=>document.getElementById(id),panel=$('paperPanel');
     if(!panel)return null;
     let book=null,enabled=true,armedAt=Date.now(),recovering=false,recoveryError='',storageError='',message='Tự vào lệnh đã bật · đang chờ xác nhận RSI mới.',historyCount=20;
-    let selected=adapter.selected(),feedAt=0,lastSave=0,audio=null,toastTimer=null,quoteTimer=null,latestQuotes=new Map(),lastRecoveryTry=0;
+    let feedAt=0,lastSave=0,audio=null,toastTimer=null,quoteTimer=null,latestQuotes=new Map(),lastRecoveryTry=0;
     const hasLocks=typeof navigator.locks?.request==='function';
     const money=x=>Number.isFinite(x)?x.toLocaleString('en-US',{maximumFractionDigits:2,minimumFractionDigits:2}):'--';
     const price=x=>Number.isFinite(x)?x.toLocaleString('en-US',{maximumSignificantDigits:9}):'--';
@@ -17,9 +17,11 @@
     const savePrefs=()=>{try{localStorage.setItem(PREFS,JSON.stringify({sound,auto:localAuto}))}catch{}};
     remote=root.RemotePaper?.create({update:remoteUpdated,event:e=>notify(e,false),pushReady:()=>announce('Đã đăng ký thông báo đẩy cho thiết bị này.')})||null;
     function remoteUpdated(){
+      const wasRemote=remoteMode;
       if(remote?.configured()){remoteMode=true;const v=remote.view();if(v.state){book=core.restore(v.state.ledger);enabled=v.state.autoEnabled;storageError='';recovering=v.state.health.state==='recovering';recoveryError=v.connected&&v.state.health.state==='error'?v.state.health.detail:'';if(book.open)latestQuotes.set(book.open.symbol,{price:book.open.lastPrice,at:Date.now()-(v.state.serverTime-book.open.lastObservedAt)});syncInputs()}else{book=null;enabled=false}}
       else if(remoteMode){remoteMode=false;recovering=false;recoveryError='';try{book=core.restore(localStorage.getItem(KEY));enabled=localAuto}catch(e){storageError=e.message;enabled=false}}
       render();
+      if(wasRemote!==remoteMode)adapter.modeChanged?.();
     }
     const beforeSymbol=()=>book?.open?.symbol||null;
     function load(){return core.restore(localStorage.getItem(KEY))}
@@ -39,7 +41,7 @@
     }
     function notify(event,system=true){
       const t=event.trade,title=event.type==='OPEN'?`PAPER · Đã mở ${t.side} ${t.symbol}`:`PAPER · Đóng ${t.symbol} · ${t.reason}`;
-      const body=event.type==='OPEN'?`Giá ${price(t.entry)} · SL ${price(t.sl)} · TP ${price(t.tp)} · Điểm ${t.score}`:`Giá ${price(t.exit)} · Lãi/lỗ ròng ${money(t.netPnl)} USDT${t.recovered?' · Khôi phục từ nến 1 phút':''}`;
+      const body=event.type==='OPEN'?`${t.strategy?t.strategy+' · ':''}Giá ${price(t.entry)} · SL ${price(t.sl)} · TP ${price(t.tp)} · Bối cảnh ${t.score}`:`Giá ${price(t.exit)} · Lãi/lỗ ròng ${money(t.netPnl)} USDT${t.recovered?' · Khôi phục từ nến 1 phút':''}`;
       announce(title+' — '+body);beep();if(system)void systemNotification(title,body,t.id+'-'+event.type);
     }
     async function transaction(reducer){
@@ -72,9 +74,11 @@
         $('remoteSettingsStatus').textContent=cloud?(online?(cf?`Bot hoạt động khi tắt app. TP/SL: nến đóng 1 phút. Hôm nay (UTC): ${u?.alarms||0} lượt bot · ${u?.apiRequests||0} lượt app · ${u?.marketRequests||0} lượt dữ liệu. Xem hạn mức chính thức trong Cloudflare Dashboard.`:'Bot chạy trên máy chủ, giữ trạng thái khi tắt app.'):'Không chuyển sang bot trình duyệt khi máy chủ mất kết nối.'):'';
       }
       root.dispatchEvent(new CustomEvent('paper:state',{detail:{enabled,open:!!book?.open}}));
-      $('paperTarget').textContent=`Theo dõi: ${cloud?(rv.state?.symbol||'máy chủ'):adapter.selected()} · tối đa 1 lệnh mở`;
+      $('paperTarget').textContent='Chỉ BTCUSDT · RSI v4.1 · tối đa 1 lệnh mở';
       $('paperStatus').textContent=cloud?(online?(recoveryError|| (enabled?'Tự vào lệnh đang BẬT trên máy chủ; không phụ thuộc điện thoại.':'Tự vào lệnh đang TẮT trên máy chủ.')):'Đang giữ sổ máy chủ. Chưa nhận được trạng thái mới; không tự mở lệnh trên trình duyệt.') : storageError||recoveryError||(recovering?'Đang kiểm tra nến bị bỏ lỡ; tạm dừng mở/đóng theo giá mới.':!hasLocks?'Trình duyệt chưa hỗ trợ khóa chống lệnh trùng. Hãy dùng Chrome/Safari mới.':document.visibilityState!=='visible'?'Tab đang ẩn · tạm dừng mở lệnh mới.':enabled?message:'Tự vào lệnh đang TẮT. Lệnh đang mở vẫn được theo dõi khi có dữ liệu.');
       $('paperStatus').classList.toggle('paper-error',!!storageError||!!recoveryError);
+      if(online&&rv.state.strategyVersion!==root.RsiMtf.VERSION){$('paperStatus').textContent='Máy chủ còn dùng bộ RSI cũ. Cập nhật và deploy backend v3.5.0 để chạy v4.1.';$('paperStatus').classList.add('paper-error')}
+      if(book?.open&&book.open.symbol!==core.PAPER_SYMBOL)$('paperStatus').textContent+=` Lệnh cũ ${book.open.symbol} được quản lý đến khi đóng; lệnh mới chỉ BTCUSDT.`;
       $('paperNotify').textContent=!('Notification' in root)?'Thông báo trong app':Notification.permission==='granted'?'✓ Đã bật thông báo':'Bật thông báo thiết bị';
       if(!book)return;
       const quote=book.open?latestQuotes.get(book.open.symbol):null,stats=core.stats(book,quote?.price||book.open?.lastPrice);
@@ -89,7 +93,7 @@
         if(openSignature!==t.id){openSignature=t.id;$('paperOpen').innerHTML=`<div class="paper-position-title"><strong class="${t.side==='LONG'?'up':'down'}">${escape(t.side)} · ${escape(t.symbol)}</strong><span>GIẢ LẬP · 1×</span></div>
           <div class="paper-position-grid"><div><span>Giá vào</span><b>${price(t.entry)}</b></div><div><span>Lãi/lỗ ròng ước tính</span><b id="paperOpenPnl" class="${stats.unrealized>=0?'up':'down'}">${money(stats.unrealized)} USDT</b></div><div><span>Stop Loss</span><b>${price(t.sl)}</b></div><div><span>Take Profit</span><b>${price(t.tp)}</b></div></div>
           <p>${money(t.notional)} USDT · ${price(t.qty)} coin · ${stamp(t.entryAt)}</p><p id="paperQuote">${fresh?'Giá theo dõi '+price(quote.price):'Đang chờ giá mới / kiểm tra lịch sử. PnL chỉ tham khảo.'}</p>
-          <details id="paperOpenWhy" ${openWhy?'open':''}><summary>Lý do vào lệnh · Điểm ${t.score}</summary><p>${escape(t.why)}</p><p>${Object.entries(t.rsi).map(([tf,v])=>`${escape(tf)}: ${price(v.confirmed)} (trước ${price(v.previous)})`).join(' · ')}</p><p>Phí mỗi chiều ${t.feePct}% · Trượt giá ${t.slippagePct}% · SL ${t.slPct}% / TP ${t.tpPct}%</p></details>
+          <details id="paperOpenWhy" ${openWhy?'open':''}><summary>${t.strategy?'v4.1 · '+escape(t.strategy):'Bộ RSI cũ'} · Lý do vào lệnh</summary><p>${escape(t.why)}</p><p>${Object.entries(t.rsi).map(([tf,v])=>`${escape(tf)}: ${price(v.confirmed)} (trước ${price(v.previous)})`).join(' · ')}</p><p>Phí mỗi chiều ${t.feePct}% · Trượt giá ${t.slippagePct}% · SL ${t.slPct}% / TP ${t.tpPct}%</p></details>
           <button id="paperClose" type="button" class="paper-small-btn" ${canClose?'':'disabled'}>Đóng lệnh giả theo giá hiện tại</button>`;
         $('paperClose').onclick=()=>closeManual();}
         $('paperClose').disabled=!canClose;$('paperOpenPnl').textContent=money(stats.unrealized)+' USDT';$('paperOpenPnl').className=stats.unrealized>=0?'up':'down';$('paperQuote').textContent=fresh?'Giá theo dõi '+price(quote.price):'Đang chờ giá mới / kiểm tra lịch sử. PnL chỉ tham khảo.';
@@ -97,7 +101,7 @@
       $('paper-initialCapital').disabled=!!book.open||book.trades.length>0;
       $('paperHistoryCount').textContent=String(book.trades.length);
       const nextHistorySignature=book.trades.length+'|'+historyCount+'|'+(book.trades.at(-1)?.id||'');
-      if(nextHistorySignature!==historySignature){historySignature=nextHistorySignature;$('paperHistory').innerHTML=book.trades.slice(-historyCount).reverse().map(t=>`<details class="paper-history-item" data-trade-id="${escape(t.id)}" ${expanded.has(t.id)?'open':''}><summary><span>${escape(t.symbol)} · ${escape(t.side)} · ${escape(t.reason)}</span><b class="${t.netPnl>=0?'up':'down'}">${t.netPnl>=0?'+':''}${money(t.netPnl)}</b></summary><p>${stamp(t.entryAt)} → ${stamp(t.exitAt)}</p><p>Vào ${price(t.entry)} → Thoát ${price(t.exit)} · ${price(t.qty)} coin</p><p>SL ${price(t.sl)} · TP ${price(t.tp)} · Phí ${money(t.entryFee+t.exitFee)} USDT · Điểm ${t.score}</p><p>${escape(t.why)}</p><p>${Object.entries(t.rsi).map(([tf,v])=>`${escape(tf)} ${price(v.confirmed)} / trước ${price(v.previous)}`).join(' · ')}</p>${t.recovered?`<p>Khôi phục bằng nến 1 phút; thời gian thoát là cuối nến, không phải thời điểm tick chính xác.${t.ambiguous?' Nến chạm cả TP và SL: tính SL trước.':''}</p>`:''}</details>`).join('')||'<div class="paper-empty">Lịch sử lệnh sẽ xuất hiện ở đây.</div>';}
+      if(nextHistorySignature!==historySignature){historySignature=nextHistorySignature;$('paperHistory').innerHTML=book.trades.slice(-historyCount).reverse().map(t=>`<details class="paper-history-item" data-trade-id="${escape(t.id)}" ${expanded.has(t.id)?'open':''}><summary><span>${escape(t.symbol)} · ${escape(t.side)} · ${escape(t.strategy||'Bộ cũ')} · ${escape(t.reason)}</span><b class="${t.netPnl>=0?'up':'down'}">${t.netPnl>=0?'+':''}${money(t.netPnl)}</b></summary><p>${stamp(t.entryAt)} → ${stamp(t.exitAt)}</p><p>Vào ${price(t.entry)} → Thoát ${price(t.exit)} · ${price(t.qty)} coin</p><p>SL ${price(t.sl)} · TP ${price(t.tp)} · Phí ${money(t.entryFee+t.exitFee)} USDT · Bối cảnh ${t.score}</p><p>${escape(t.why)}</p><p>${Object.entries(t.rsi).map(([tf,v])=>`${escape(tf)} ${price(v.confirmed)} / trước ${price(v.previous)}`).join(' · ')}</p>${t.recovered?`<p>Khôi phục bằng nến 1 phút; thời gian thoát là cuối nến, không phải thời điểm tick chính xác.${t.ambiguous?' Nến chạm cả TP và SL: tính SL trước.':''}</p>`:''}</details>`).join('')||'<div class="paper-empty">Lịch sử lệnh sẽ xuất hiện ở đây.</div>';}
       $('paperMore').hidden=book.trades.length<=historyCount;
       $('paperRetry').hidden=!recoveryError;
     }
@@ -132,8 +136,7 @@
       },250);
     }
     function onSignal(input){
-      if(remote?.configured())return;
-      if(input.symbol!==selected){selected=input.symbol;armedAt=Date.now()}
+      if(remote?.configured()||input.symbol!==core.PAPER_SYMBOL)return;
       if(!enabled||!book||recovering||recoveryError||storageError||document.visibilityState!=='visible')return;
       const q=latestQuotes.get(input.symbol),now=Date.now();
       if(input.blocked||!adapter.connected()||!q||now-q.at>5000){message='Chờ dữ liệu và giá trực tiếp hợp lệ.';render();return}
@@ -142,10 +145,11 @@
       if((book.lastSignals[input.symbol]||0)>=signalAt)return;
       if(signalAt<=armedAt||now-signalAt>30000){message='Bỏ qua tín hiệu cũ; đang chờ lần xác nhận mới.';render();return}
       const signal={symbol:input.symbol,side:input.result.signal,score:input.result.score,price:q.price,signalAt,
+        strategyVersion:input.result.version,ruleSet:input.result.ruleSet,strategy:input.result.winner.strategy,checks:input.result.winner.checks,riskPctSuggested:input.result.winner.riskPct,
         rsi:Object.fromEntries(Object.entries(input.frames).map(([tf,x])=>[tf,{confirmed:x.confirmed,previous:x.previous,closedAt:x.closedAt}])),
         why:input.reason};
       void transaction(fresh=>{
-        if(!enabled||recovering||document.visibilityState!=='visible'||adapter.selected()!==signal.symbol||!adapter.connected()||Date.now()-q.at>5000)return {book:fresh};
+        if(!enabled||recovering||document.visibilityState!=='visible'||signal.symbol!==core.PAPER_SYMBOL||!adapter.connected()||Date.now()-q.at>5000)return {book:fresh};
         const result=core.acceptSignal(fresh,signal,{now:Date.now(),armedAt});
         if(result.event){feedAt=Date.now();lastSave=Date.now();message='Đã mở lệnh giả; đang theo dõi TP/SL.'}
         return result;
@@ -177,7 +181,7 @@
     $('paperBackup').onclick=()=>download('BinanceSignal-Paper-Backup.json',remote?.configured()?JSON.stringify(book,null,2):(localStorage.getItem(KEY)||JSON.stringify(book,null,2)),'application/json');
     $('paperCsv').onclick=()=>{
       if(!book)return;
-      const cols=['id','symbol','side','entryAt','exitAt','entry','exit','qty','notional','sl','tp','entryFee','exitFee','grossPnl','netPnl','reason','score','rsi','why','recovered','ambiguous'];
+      const cols=['id','symbol','side','strategyVersion','ruleSet','strategy','entryAt','exitAt','entry','exit','qty','notional','sl','tp','entryFee','exitFee','grossPnl','netPnl','reason','score','rsi','why','checks','riskPctSuggested','recovered','ambiguous'];
       const cell=x=>'"'+String(typeof x==='object'?JSON.stringify(x):x??'').replace(/"/g,'""')+'"';
       download('BinanceSignal-Paper-History.csv','\uFEFF'+[cols.map(cell).join(','),...book.trades.map(t=>cols.map(k=>cell(t[k])).join(','))].join('\r\n'),'text/csv;charset=utf-8');
     };
@@ -191,6 +195,6 @@
     }
     for(const key of Object.keys(core.DEFAULTS))$('paper-'+key).addEventListener('input',()=>{settingsDirty=true});
     syncInputs();render();
-    return {onSignal,onQuote,resume,render,selectedChanged:s=>{if(remote?.configured()&&remote.view().connected)void remote.action('/api/monitor',{symbol:s}).catch(e=>announce(e.message))},monitoredSymbols:()=>!remote?.configured()&&book?.open?[book.open.symbol]:[]};
+    return {onSignal,onQuote,resume,render,selectedChanged:()=>render(),localActive:()=>!remote?.configured(),monitoredSymbols:()=>remote?.configured()?[]:[...new Set([core.PAPER_SYMBOL,...(book?.open?[book.open.symbol]:[])])]};
   }};
 })(globalThis);

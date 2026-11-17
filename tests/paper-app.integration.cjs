@@ -37,8 +37,8 @@ function harness({store=shared(),start=Date.UTC(2026,10,16,8,0,1),recovery='safe
     const month=(ms,offset)=>{let d=new Date(ms);return Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+offset,1)};
     return Array.from({length:260},(_,i)=>{
       const t=tf==='1M'?month(current,i-259):current+(i-259)*step,end=tf==='1M'?month(t,1)-1:t+step-1;
-      // RSI 15m crosses 55 on the last CLOSED candle; other four frames are bullish.
-      const c=tf==='15m'?(i<258?100+(i%2):i===258?105:105.2):100+i*.1,o=c-.05;
+      // RSI 15m crosses 50 on the last CLOSED candle; higher RSI fits v4.1 Momentum.
+      const c=tf==='15m'?(i<257?100+(i%2):i===257?100:i===258?105:105.2):(i<258?100+(i%2):i===258?102:102.2),o=c-.05;
       return [t,''+o,''+(c+.2),''+(o-.2),''+c,'1000',end];
     });
   }
@@ -48,13 +48,13 @@ function harness({store=shared(),start=Date.UTC(2026,10,16,8,0,1),recovery='safe
   for(const file of ['rsi-mtf.js','paper-trading.js','remote-paper.js','paper-ui.js','mobile-ui.js','app.js'])w.eval(fs.readFileSync(path.join(root,file),'utf8')+(file==='app.js'?'\nwindow.__qaEval=(code)=>eval(code);':''));
   const read=s=>w.__qaEval(s),el=id=>w.document.getElementById(id),ledger=()=>JSON.parse(store.storage.getItem(KEY));
   function arm(){el('paperAuto').checked=true;el('paperAuto').dispatchEvent(new w.Event('change'))}
-  function newSignal(){
+  function newSignal(symbol=read('state.selected')){
     clock=Math.floor(clock/900000)*900000+900000+500;
     for(const tf of ['1M','1d','4h','1h','15m']){
       const cs=rows(tf).map(r=>({openTime:r[0],open:+r[1],high:+r[2],low:+r[3],close:+r[4],volume:+r[5],closeTime:r[6]}));
-      read(`setCachedCandles(state.selected,${JSON.stringify(tf)},${JSON.stringify(cs)})`);
+      read(`setCachedCandles(${JSON.stringify(symbol)},${JSON.stringify(tf)},${JSON.stringify(cs)})`);
     }
-    read(`paperUi.onQuote(state.selected,105.2,${clock});renderRsiMtf()`);
+    read(`paperUi.onQuote(${JSON.stringify(symbol)},105.2,${clock});renderRsiMtf()`);
   }
   return {w,dom,read,el,ledger,store,errors,notes,requests,downloads,arm,newSignal,setClock:n=>clock=n,getClock:()=>clock,close:()=>w.close()};
 }

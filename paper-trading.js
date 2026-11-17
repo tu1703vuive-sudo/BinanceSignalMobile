@@ -1,6 +1,7 @@
 /* Deterministic 1x paper ledger. Never signs or submits an exchange order. */
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.PaperTrading=api})(typeof globalThis!=='undefined'?globalThis:this,function(){
   'use strict';
+  const PAPER_SYMBOL='BTCUSDT';
   const DEFAULTS=Object.freeze({initialCapital:10000,notional:100,slPct:1,tpPct:2,feePct:.05,slippagePct:.02});
   const clone=x=>JSON.parse(JSON.stringify(x));
   const positive=x=>Number.isFinite(x)&&x>0;
@@ -27,6 +28,7 @@
     next.config=cfg;return next;
   }
   function acceptSignal(book,signal,{now=Date.now(),armedAt=now}={}){
+    if(signal?.symbol!==PAPER_SYMBOL)return {book,event:null,skip:'Paper Trading chỉ áp dụng BTCUSDT'};
     if(!signal||!['LONG','SHORT'].includes(signal.side)||!/^[A-Z0-9]{1,30}USDT$/.test(signal.symbol)||!positive(signal.price)||!Number.isSafeInteger(signal.signalAt)||signal.signalAt<=armedAt||now<signal.signalAt||now-signal.signalAt>30000||!Number.isFinite(signal.score))return {book,event:null,skip:'Tín hiệu cũ hoặc không hợp lệ'};
     if((book.lastSignals[signal.symbol]||0)>=signal.signalAt)return {book,event:null,skip:'Đã xử lý tín hiệu này'};
     const next=clone(book);next.lastSignals[signal.symbol]=signal.signalAt;
@@ -38,6 +40,7 @@
       qty:cfg.notional/entry,notional:cfg.notional,entryFee,feePct:cfg.feePct,slippagePct:cfg.slippagePct,
       sl:entry*(1-side*cfg.slPct/100),tp:entry*(1+side*cfg.tpPct/100),slPct:cfg.slPct,tpPct:cfg.tpPct,
       score:signal.score,rsi:clone(signal.rsi||{}),why:signal.why||'RSI 5 khung xác nhận',lastObservedAt:now,lastPrice:signal.price};
+    if(signal.strategyVersion){trade.strategyVersion=signal.strategyVersion;trade.ruleSet=signal.ruleSet;trade.strategy=signal.strategy;trade.checks=clone(signal.checks||[]);trade.riskPctSuggested=signal.riskPctSuggested;}
     next.cash-=cfg.notional+entryFee;next.open=trade;
     return {book:next,event:{type:'OPEN',trade:clone(trade)}};
   }
@@ -83,5 +86,5 @@
     const realized=book.trades.reduce((s,t)=>s+t.netPnl,0),wins=book.trades.filter(t=>t.netPnl>0).length;
     return {cash:book.cash,realized,unrealized,equity:book.cash+(t?t.notional+unrealized+t.entryFee:0),closed:book.trades.length,wins};
   }
-  return Object.freeze({DEFAULTS,config,create,restore,configure,acceptSignal,close,mark,replay,stats});
+  return Object.freeze({PAPER_SYMBOL,DEFAULTS,config,create,restore,configure,acceptSignal,close,mark,replay,stats});
 });

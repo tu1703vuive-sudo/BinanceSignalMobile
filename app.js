@@ -1,11 +1,11 @@
 'use strict';
 
-const APP_VERSION='3.4.0';
+const APP_VERSION='3.5.0';
 const RSI_MTF_TIMEFRAMES=RsiMtf.FRAMES.map(f=>f.tf);
 const CHART_INDICATOR_VERSION='indicator-settings-v1';
 const DATA_ENGINE_VERSION='integrity-guard-v1';
 const ENGINE_VERSION='short-v2.2';
-const CANDLE_CACHE_LIMIT=300;
+const CANDLE_CACHE_LIMIT=480;
 const CANDLE_CACHE_MAX_ENTRIES=35;
 const CANDLE_CACHE_FRESH_MS=90000;
 const TICKER_RENDER_INTERVAL=120;
@@ -101,6 +101,7 @@ const paperUi=PaperUI.create({
   selected:()=>state.selected,
   connected:()=>navigator.onLine!==false&&state.ws?.readyState===1&&state.klineWs?.readyState===1,
   recoveryCandles:getPaperRecoveryCandles,
+  modeChanged:()=>setTimeout(()=>{connectTicker();connectKlines()},0),
   monitoredChanged:(before,after)=>{if([before,after].some(s=>s&&!state.symbols.includes(s)))connectTicker()}
 });
 
@@ -558,6 +559,28 @@ function scheduleRsiMtfRender(){
   if(state.rsiMtfTimer)return;
   state.rsiMtfTimer=setTimeout(()=>{state.rsiMtfTimer=null;renderRsiMtf()},350);
 }
+// Local paper follows BTC independently of the chart/watchlist selection.
+function submitPaperBtcSignal(){
+  if(!paperUi?.localActive())return;
+  const symbol=PaperTrading.PAPER_SYMBOL,now=Date.now(),frames={};
+  for(const f of RsiMtf.FRAMES){
+    const cs=getCachedCandles(symbol,f.tf,state.market)||[],last=cs.at(-1);
+    frames[f.tf]={...RsiMtf.frame(cs,now,f.tf),healthy:!!last&&inspectCandles(cs,f.tf).ok&&cacheIsFresh(symbol,f.tf,state.market)&&last.closeTime>=now-15000};
+  }
+  const result=RsiMtf.evaluate(frames),blocked=navigator.onLine===false||state.ws?.readyState!==1||state.klineWs?.readyState!==1||result.missing.length>0||frames['15m'].ready&&now>=frames['15m'].closedAt+900001;
+  paperUi.onSignal({symbol,result,frames,blocked,reason:result.winner?.reason||'v4.1 · chưa đủ điều kiện'});
+}
+function schedulePaperBtcSignal(){
+  if(!paperUi?.localActive()||schedulePaperBtcSignal.timer)return;
+  schedulePaperBtcSignal.timer=setTimeout(()=>{schedulePaperBtcSignal.timer=null;submitPaperBtcSignal()},350);
+}
+async function refreshPaperBtc({forceRest=false}={}){
+  if(!paperUi?.localActive())return;
+  if(refreshPaperBtc.pending)return refreshPaperBtc.pending;
+  refreshPaperBtc.pending=Promise.allSettled(RSI_MTF_TIMEFRAMES.map(tf=>getKlinesCached(PaperTrading.PAPER_SYMBOL,tf,state.market,{forceRest})))
+    .then(()=>submitPaperBtcSignal()).finally(()=>{refreshPaperBtc.pending=null});
+  return refreshPaperBtc.pending;
+}
 async function refreshRsiMtf({forceRest=false}={}){
   const token=++state.rsiMtfToken,symbol=state.selected,market=state.market;
   state.rsiMtfLoading=true;state.rsiMtfError='';renderRsiMtf();
@@ -568,13 +591,24 @@ async function refreshRsiMtf({forceRest=false}={}){
   state.rsiMtfError=failed.length?`Không tải được ${failed.join(' / ')}. Bấm ↻ để thử lại.`:'';
   renderRsiMtf();
 }
+function renderV41Details(result){
+  const target=$('rsiV41Rules');if(!target)return;
+  const signature=JSON.stringify(result.evaluations);if(signature===renderV41Details.signature)return;
+  const opened=new Set([...target.querySelectorAll('details[open]')].map(d=>d.dataset.rule));
+  renderV41Details.signature=signature;
+  target.innerHTML=RsiMtf.STRATEGIES.flatMap(st=>['LONG','SHORT'].map(side=>{
+    const e=result.evaluations[st]?.[side];if(!e)return '';
+    const key=st+'-'+side;
+    return `<details data-rule="${key}" ${opened.has(key)?'open':''}><summary>${st} ${side} · ${e.passed}/${e.total}${e.allowed?' · ĐẠT':''}</summary><ul>${e.checks.map(c=>`<li>${c.passed?'✓':'○'} ${c.tf.toUpperCase()} · ${c.detail}</li>`).join('')}</ul></details>`;
+  })).join('')||'<p>Chờ đủ dữ liệu cả 5 khung.</p>';
+}
 function renderRsiMtf(){
   if(!els.rsiMtf)return;
   const now=Date.now(),frames={};
   for(const f of RsiMtf.FRAMES){
     const candles=getCachedCandles(state.selected,f.tf,state.market)||[];
     const last=candles.at(-1),check=inspectCandles(candles,f.tf);
-    frames[f.tf]={...RsiMtf.frame(candles,now),healthy:!!last&&check.ok&&cacheIsFresh(state.selected,f.tf,state.market)&&last.closeTime>=now-15000};
+    frames[f.tf]={...RsiMtf.frame(candles,now,f.tf),healthy:!!last&&check.ok&&cacheIsFresh(state.selected,f.tf,state.market)&&last.closeTime>=now-15000};
   }
   const result=RsiMtf.evaluate(frames);
   const offline=navigator.onLine===false||state.klineWs?.readyState!==1;
@@ -593,37 +627,32 @@ function renderRsiMtf(){
   els.rsiMtf.dataset.bias=blocked?'wait':direction(result.bias);
   els.rsiMtfMarker.hidden=blocked;
   if(!blocked)els.rsiMtfMarker.style.left=`${(result.score+100)/2}%`;
-  els.rsiMtfScore.textContent=blocked?'Điểm xu hướng --':`Điểm xu hướng ${result.score>0?'+':''}${result.score} / 100`;
+  els.rsiMtfScore.textContent=blocked?'Điểm xu hướng --':`Bối cảnh ${result.score>0?'+':''}${result.score} / 100 · tham khảo`;
   const labels={'LONG':'LONG XÁC NHẬN','SHORT':'SHORT XÁC NHẬN','WATCH LONG':'THIÊN LONG · CHỜ XÁC NHẬN','WATCH SHORT':'THIÊN SHORT · CHỜ XÁC NHẬN','WAIT':'TRUNG LẬP · CHỜ'};
-  els.rsiMtfSignal.textContent=blocked?(state.rsiMtfLoading?'ĐANG ĐỒNG BỘ · CHỜ':'DỮ LIỆU CHƯA SẴN SÀNG · CHỜ'):labels[result.signal];
+  els.rsiMtfSignal.textContent=blocked?(state.rsiMtfLoading?'ĐANG ĐỒNG BỘ · CHỜ':'DỮ LIỆU CHƯA SẴN SÀNG · CHỜ'):result.conflict?'CHỜ · LONG/SHORT MÂU THUẪN':result.winner?`${result.winner.strategy} · ${labels[result.signal]}`:'v4.1 · CHỜ XÁC NHẬN';
   let reason='';
   if(blocked){
-    const insufficient=RsiMtf.FRAMES.filter(f=>!frames[f.tf].ready).map(f=>`${f.label}: ${frames[f.tf].closedCount}/16 nến chốt`);
+    const insufficient=RsiMtf.FRAMES.filter(f=>!frames[f.tf].ready).map(f=>`${f.label}: ${frames[f.tf].closedCount}/${RsiMtf.MIN_CANDLES[f.tf]} nến chốt`);
     const unhealthy=RsiMtf.FRAMES.filter(f=>frames[f.tf].ready&&!frames[f.tf].healthy).map(f=>f.label);
     reason=state.rsiMtfLoading?'Đang lấy và kiểm tra dữ liệu cho cả 5 khung.':state.rsiMtfError||
       (insufficient.length?`Chưa đủ lịch sử RSI (${insufficient.join(' · ')}).`:offline?'Đang chờ WebSocket kết nối lại.':awaitingClose?'Đang chờ nến 15M mới đóng được đồng bộ.':`Dữ liệu cũ hoặc lỗi: ${unhealthy.join(' / ')}. Bấm ↻ để đồng bộ.`);
   }else{
-    const bull=RsiMtf.FRAMES.filter(f=>RsiMtf.classify(frames[f.tf].confirmed)===1).map(f=>f.label);
-    const bear=RsiMtf.FRAMES.filter(f=>RsiMtf.classify(frames[f.tf].confirmed)===-1).map(f=>f.label);
-    const parts=[];
-    if(bull.length)parts.push(`Nghiêng tăng: ${bull.join(' / ')}`);
-    if(bear.length)parts.push(`Nghiêng giảm: ${bear.join(' / ')}`);
-    reason=parts.length?`${parts.join('. ')}. `:'Cả 5 khung đang ở vùng trung lập. ';
-    if(result.bias){
-      const long=result.bias===1,limit=long?55:45,sign=long?'≥':'≤';
-      const pending=['4h','1h'].filter(tf=>long?frames[tf].confirmed<55:frames[tf].confirmed>45).map(tf=>`${tf.toUpperCase()} ${sign}${limit}`);
-      if(!(long?result.crossLong:result.crossShort))pending.push(`15M ${long?'vượt 55':'xuống dưới 45'} trên nến đóng`);
-      reason+=pending.length?`Còn chờ: ${pending.join('; ')}.`:'4H, 1H đồng thuận và 15M đã cắt ngưỡng xác nhận.';
-    }else reason+='Chưa đạt điểm đồng thuận ±35.';
+    if(result.conflict)reason='LONG và SHORT cùng hợp lệ: chờ, không mở lệnh.';
+    else if(result.winner)reason=result.winner.reason;
+    else{
+      const best=Object.values(result.evaluations).flatMap(e=>Object.values(e)).sort((a,b)=>b.passed-a.passed)[0];
+      reason=best?`${best.strategy} ${best.side} gần đạt: ${best.passed}/${best.total}. Còn chờ: `+best.checks.filter(c=>!c.passed).map(c=>`${c.tf} ${c.detail}`).join('; '):'Chờ đủ dữ liệu v4.1.';
+    }
   }
   els.rsiMtfReason.textContent=reason;
+  renderV41Details(result);
   const warnings=RsiMtf.FRAMES.filter(f=>Number.isFinite(frames[f.tf].confirmed)&&(frames[f.tf].confirmed<=30||frames[f.tf].confirmed>=70))
     .map(f=>`${f.label} ${value(frames[f.tf].confirmed)}: ${frames[f.tf].confirmed<=30?'quá bán':'quá mua'}`);
   els.rsiMtfWarnings.textContent=warnings.length?`RSI chốt · ${warnings.join(' · ')}. Cảnh báo cực trị, chưa tự xác nhận đảo chiều.`:'';
   const stamp=t=>new Date(t).toLocaleString('vi-VN');
   els.rsiMtfClosedAt.textContent=RsiMtf.FRAMES.map(f=>`${f.label}: ${frames[f.tf].closedAt?stamp(frames[f.tf].closedAt+1):'chưa có nến chốt'}`).join(' · ');
-  if(!blocked&&(result.signal==='LONG'||result.signal==='SHORT'))els.rsiMtfClosedAt.textContent+=` · Xác nhận 15M có hiệu lực đến ${stamp(frames['15m'].closedAt+1+15*60*1000)}.`;
-  paperUi?.onSignal({symbol:state.selected,result,frames,blocked,reason});
+  if(!blocked&&(result.signal==='LONG'||result.signal==='SHORT'))els.rsiMtfClosedAt.textContent+=' · Bot chỉ mở lệnh mới trong 30 giây sau nến 15M đóng.';
+  submitPaperBtcSignal();
 }
 function updateCachedCandle(symbol,interval,candle,market=state.market){
   let key=candleCacheKey(symbol,interval,market),arr=state.candleCache.get(key);
@@ -677,6 +706,9 @@ function assertDataIntegrity(data,intervals){
   return true;
 }
 function scheduleIntegrityResync(symbol,interval,market=state.market,reason='Dữ liệu cần đồng bộ lại'){
+  if(symbol===PaperTrading.PAPER_SYMBOL&&symbol!==state.selected&&market===state.market&&paperUi?.localActive()){
+    if(Date.now()-(refreshPaperBtc.lastRepair||0)>30000){refreshPaperBtc.lastRepair=Date.now();void refreshPaperBtc({forceRest:true})}return;
+  }
   if(symbol!==state.selected||market!==state.market)return;
   let key=candleCacheKey(symbol,interval,market);state.integrityResyncKey=key;setDataHealth('resyncing',reason);
   clearTimeout(state.integrityResyncTimer);
@@ -742,7 +774,7 @@ async function getKlinesCached(symbol,interval,market=state.market,{forceRest=fa
   if(!forceRest&&cached&&cacheIsFresh(symbol,interval,market))return cached;
   let key=candleCacheKey(symbol,interval,market);
   if(state.pendingKlines.has(key))return state.pendingKlines.get(key);
-  let p=getKlines(symbol,interval,260,market)
+  let p=getKlines(symbol,interval,RSI_MTF_TIMEFRAMES.includes(interval)?450:260,market)
     .then(rows=>{
       let arr=setCachedCandles(symbol,interval,mergeLiveCandle(interval,rows,symbol,market),market,true),check=cacheIntegrity(symbol,interval,market);
       if(check&&!check.ok){let e=new Error(`${interval}: dữ liệu REST có khoảng trống`);e.name='DataIntegrityError';throw e}
@@ -770,24 +802,27 @@ function connectKlines(){
   if(state.klineWs){try{state.klineWs.onclose=null;state.klineWs.close()}catch{}state.klineWs=null}
   let symbol=(state.selected||'').toLowerCase();if(!symbol)return;
   let marketAtConnect=state.market,selectedAtConnect=state.selected,cfg=marketCfg(marketAtConnect);
-  let streams=CHART_TIMEFRAMES.map(tf=>`${symbol}@kline_${tf}`).join('/');
+  let streams=[...new Set([...CHART_TIMEFRAMES.map(tf=>`${symbol}@kline_${tf}`),...(paperUi?.localActive()?RSI_MTF_TIMEFRAMES.map(tf=>`btcusdt@kline_${tf}`):[])])].join('/');
   let ws=new WebSocket(cfg.wsBase+streams);state.klineWs=ws;
   ws.onopen=()=>{
     if(state.klineWs!==ws)return;
     let wasReconnect=state.klineReconnectAttempt>0;state.klineReconnectAttempt=0;
+    void refreshPaperBtc({forceRest:wasReconnect});
     if(wasReconnect){setDataHealth('resyncing','WebSocket vừa kết nối lại, đang đối chiếu REST');setTimeout(()=>{if(state.klineWs===ws&&state.selected===selectedAtConnect)analyzeSelected({forceRest:true,source:'ws-resync'})},300)}
     else if(state.analysis)setDataHealth('live','WebSocket kline đang trực tuyến');
   };
   ws.onmessage=e=>{try{
     if(state.market!==marketAtConnect||state.selected!==selectedAtConnect)return;
-    let payload=JSON.parse(e.data),d=payload.data||payload,k=d.k;if(!k||d.s!==selectedAtConnect)return;
+    let payload=JSON.parse(e.data),d=payload.data||payload,k=d.k;if(!k||!(d.s===selectedAtConnect||d.s===PaperTrading.PAPER_SYMBOL&&paperUi?.localActive()))return;
+    const candleSymbol=d.s;
     let candle={openTime:+k.t,open:+k.o,high:+k.h,low:+k.l,close:+k.c,volume:+k.v,closeTime:+k.T};
-    applyLiveKline(k.i,candle,selectedAtConnect,marketAtConnect);
-    if(k.i==='15m')paperUi?.onQuote(selectedAtConnect,candle.close,Number.isFinite(+d.E)?+d.E:Date.now());
-    if(k.i===state.chartTf){
+    applyLiveKline(k.i,candle,candleSymbol,marketAtConnect);
+    if(k.i==='15m')paperUi?.onQuote(candleSymbol,candle.close,Number.isFinite(+d.E)?+d.E:Date.now());
+    if(candleSymbol===PaperTrading.PAPER_SYMBOL){schedulePaperBtcSignal();if(cacheIntegrity(candleSymbol,k.i,marketAtConnect)?.ok===false)scheduleIntegrityResync(candleSymbol,k.i,marketAtConnect)}
+    if(candleSymbol===selectedAtConnect&&k.i===state.chartTf){
       let t=state.tickers.get(state.selected)||{};state.tickers.set(state.selected,{price:candle.close,change:t.change||0});renderSelectedTicker();
     }
-    if(k.x&&(ANALYSIS_TIMEFRAMES[state.mode]||[]).includes(k.i)){
+    if(candleSymbol===selectedAtConnect&&k.x&&(ANALYSIS_TIMEFRAMES[state.mode]||[]).includes(k.i)){
       clearTimeout(connectKlines._analysisTimer);
       connectKlines._analysisTimer=setTimeout(()=>analyzeSelected({forceRest:false,source:'closed-kline'}),180);
     }
@@ -1115,6 +1150,7 @@ window.addEventListener('pagehide',()=>{clearTimeout(state.klineReconnectTimer);
 document.addEventListener('visibilitychange',()=>{
   paperUi?.resume();
   if(document.visibilityState!=='visible')return;
+  void refreshPaperBtc({forceRest:true});
   if(!state.ws||state.ws.readyState>=2)connectTicker();
   if(!state.klineWs||state.klineWs.readyState>=2)connectKlines();
   let intervals=[...new Set([...(ANALYSIS_TIMEFRAMES[state.mode]||ANALYSIS_TIMEFRAMES.short),state.chartTf,...RSI_MTF_TIMEFRAMES])];

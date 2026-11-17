@@ -1,6 +1,6 @@
 {
   "name": "binance-signal-cloudflare",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,11 @@
     "test": "node --test tests/*.test.mjs",
     "test:runtime": "npm run build && node --test tests/runtime.integration.mjs"
   },
-  "dependencies": {"@block65/webcrypto-web-push": "2.0.0"},
-  "devDependencies": {"wrangler": "4.163.0", "miniflare": "5.20261116.0-beta"}
+  "dependencies": {
+    "@block65/webcrypto-web-push": "2.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "4.163.0",
+    "miniflare": "5.20261116.0-beta"
+  }
 }

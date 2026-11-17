@@ -1,8 +1,10 @@
-# BinanceSignalMobile v3.4.0 — chạy thử Cloudflare
+**Bản hiện tại: v3.5.0, bộ RSI chính v4.1.** Nếu đã cài Cloudflare, dùng [hướng dẫn cập nhật v3.5.0](CAP_NHAT_v3.5.0_RSI_V41.md). Các bước cài mới bên dưới vẫn áp dụng.
+
+# BinanceSignalMobile v3.4.1 — chạy thử Cloudflare
 
 Giữ giao diện trên GitHub Pages. Chuyển riêng bot paper, sổ lệnh và Web Push lên một Cloudflare Worker + SQLite Durable Object. Sau khi triển khai và đăng ký thiết bị thành công, bot hoạt động khi đóng trình duyệt, tắt máy tính và khóa điện thoại.
 
-**Bản này đã chuẩn bị mã nguồn và kiểm thử. Chưa được triển khai vào tài khoản Cloudflare của bạn.** Cần đăng nhập tài khoản của chính bạn theo các bước dưới đây; không gửi mật khẩu hoặc token vào cuộc trò chuyện.
+**Bản này đã chuẩn bị mã nguồn và kiểm thử. Chưa được triển khai vào tài khoản Cloudflare của bạn.** Cần đăng nhập tài khoản của chính bạn theo các bước dưới đây; không gửi mật khẩu hoặc token vào cuộc trò chuyện. Nếu đã cài v3.4.0, đọc CAP_NHAT_v3.4.1_BTC.md để giữ khóa và sổ hiện tại.
 
 ## 1. Cập nhật giao diện GitHub Pages
 
@@ -21,7 +23,7 @@ paper-ui.js
 mobile-ui.js
 ```
 
-Đợi GitHub Pages triển khai xong, mở lại app. Trong Cài đặt sẽ thấy **v3.4.0 · Cloudflare Paper**. Nếu vẫn hiện bản cũ, đóng toàn bộ cửa sổ app rồi mở lại / tải lại trang. Không xóa dữ liệu trình duyệt vì có thể làm mất sổ paper lưu cục bộ.
+Đợi GitHub Pages triển khai xong, mở lại app. Trong Cài đặt sẽ thấy **v3.5.0 · RSI v4.1 · BTC**. Nếu vẫn hiện bản cũ, đóng toàn bộ cửa sổ app rồi mở lại / tải lại trang. Không xóa dữ liệu trình duyệt vì có thể làm mất sổ paper lưu cục bộ.
 
 ## 2. Cài bot lên Cloudflare — làm một lần trên Windows
 
@@ -57,9 +59,9 @@ Có sổ paper cũ trên trình duyệt? Nhấn **Chuyển sổ hiện tại lê
 
 ## Bot thực hiện gì?
 
-- Theo dõi **một coin** (mặc định BTCUSDT), tối đa **một lệnh mở**. Chọn coin trong app để đổi coin theo dõi; nếu đã có lệnh, bot tiếp tục quản lý lệnh đó và áp dụng coin mới cho tín hiệu tiếp theo. Watchlist vẫn là danh sách giao diện, chưa phải quét đồng thời mọi coin trên cloud.
-- RSI 14 Wilder, năm khung **1M (tháng), 1D, 4H, 1H, 15m**. Dùng đúng module chiến lược của ứng dụng, không thay đổi quy tắc LONG/SHORT hiện tại.
-- Chỉ vào tín hiệu mới sau khi bật tự động / đổi coin, trong 30 giây đầu sau nến 15m đóng. Tín hiệu cũ, thiếu dữ liệu hoặc alarm bị trễ quá cửa sổ này được bỏ qua; không giả lập giá vào trong quá khứ.
+- Paper chỉ theo dõi **BTCUSDT**, tối đa **một lệnh mở**. Chọn coin khác chỉ đổi Watchlist/chart/RSI, không đổi bot. Vị thế coin khác đã có từ bản cũ được quản lý đến khi đóng, rồi chỉ mở BTC.
+- RSI 14 Wilder, năm khung **1M (tháng), 1D, 4H, 1H, 15m**. Bộ chính **v4.1**: Reversal, Momentum, Breakout, các quy tắc nằm trong CAP_NHAT_v3.5.0_RSI_V41.md.
+- Chỉ vào tín hiệu mới sau khi bật tự động / nâng cấp mục tiêu cũ sang BTC, trong 30 giây đầu sau nến 15m đóng. Tín hiệu cũ, thiếu dữ liệu hoặc alarm bị trễ quá cửa sổ này được bỏ qua; không giả lập giá vào trong quá khứ.
 - Vốn mặc định 10.000 USDT ảo, mỗi lệnh 100 USDT, SL 1%, TP 2%, phí mỗi chiều 0,05%, trượt giá 0,02%. Có thể đổi trong cài đặt. Không đặt lệnh thật, không cần Binance API key.
 - **TP/SL tự động dựa trên nến 1 phút đã đóng**, không phải từng tick. Bot thức dậy ngay sau phút đóng khi có lệnh. Chạm cả TP và SL trong cùng nến: ưu tiên SL. Nến chứa thời điểm vào lệnh chỉ dùng giá đóng vì không biết cực trị nào xảy ra trước/sau khi vào.
 - Giá chart vẫn cập nhật qua kết nối thị trường của điện thoại. Sổ máy chủ đồng bộ mỗi 10 giây khi app đang hiện; dừng hỏi API khi app ẩn. Nút đóng tay yêu cầu máy chủ lấy giá mới và kiểm tra lịch sử trước khi đóng.
@@ -80,7 +82,7 @@ Trong phần kết nối app có bộ đếm ngày UTC (đổi ngày lúc 07:00 
 
 | Hiện tượng | Cách xử lý |
 |---|---|
-| Không thấy v3.4.0 | Kiểm tra GitHub Pages đã deploy các file ở bước 1; đóng/mở lại app |
+| Không thấy v3.4.1 | Kiểm tra GitHub Pages đã deploy các file ở bước 1; đóng/mở lại app |
 | Mã kết nối không đúng | Chép lại từ `cloudflare/connection.txt`; không dùng Cloudflare API token làm mã app |
 | Origin không được phép | `ALLOWED_ORIGINS` phải là origin chính xác của website. Mặc định đã điền `https://tu1703vuive-sudo.github.io`; đổi miền thì sửa `wrangler.jsonc` và deploy lại |
 | Binance HTTP 451/403 | Cloudflare tại vị trí chạy có thể bị Binance từ chối. Bot giữ sổ, không bịa dữ liệu; chưa thể coi bản thử đã thành công. Không có cam kết Binance luôn cho phép egress Cloudflare |

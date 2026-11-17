@@ -36,6 +36,7 @@ test('workerd authenticates, runs alarm without phone polling, persists after ev
   try{
     assert.equal((await api('/api/state',null,'wrong')).status,401);assert.equal((await api('/api/state',null,token,'https://attacker.invalid')).status,403);
     const first=await api('/api/state');assert.equal(first.status,200);assert.equal(first.data.autoEnabled,true);assert.ok(first.data.nextAlarm);assert.equal(first.headers.get('Access-Control-Allow-Origin'),'https://tu1703vuive-sudo.github.io');
+    assert.equal((await api('/api/monitor',{symbol:'ETHUSDT'})).status,400);assert.equal((await api('/api/monitor',{symbol:'BTCUSDT'})).data.symbol,'BTCUSDT');
     // No incoming app requests while waiting: alarm itself must fetch all five frames.
     await until(()=>requests.filter(u=>u.includes('/klines')).length===5);
     const live=await api('/api/state');assert.equal(live.data.health.state,'live');assert.ok(live.data.usage.alarms>=1);assert.equal(Object.keys(live.data.frames).length,5);

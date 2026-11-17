@@ -1,4 +1,8 @@
-# Cloudflare paper backend v3.4.0
+**v3.5.0 dùng RSI v4.1.** [Hướng dẫn nâng cấp](../CAP_NHAT_v3.5.0_RSI_V41.md). Giữ khóa và sổ cũ; không tạo bot mới.
+
+**Đã cài bản cũ?** Đọc [cập nhật BTC-only](../CAP_NHAT_v3.4.1_BTC.md), giữ secrets và sổ cũ.
+
+# Cloudflare paper backend v3.5.0
 
 Đọc [BAT_DAU_CLOUDFLARE.md](../BAT_DAU_CLOUDFLARE.md) để cài và kết nối điện thoại.
 
@@ -9,7 +13,7 @@ npm run login
 npm run deploy
 ```
 
-Node.js 24 LTS. Một Worker, một SQLite Durable Object, alarm chủ động và cron watchdog mỗi 5 phút. Giao diện GitHub Pages dùng API tương thích với backend Node hiện có. Chỉ paper 1×, một coin theo dõi và một vị thế. Tín hiệu dùng RSI 5 khung trên nến đóng; TP/SL dùng nến đóng 1m. Không có timer giữ Worker chạy trong bộ nhớ khi nhàn rỗi.
+Node.js 24 LTS. Một Worker, một SQLite Durable Object, alarm chủ động và cron watchdog mỗi 5 phút. Giao diện GitHub Pages dùng API tương thích với backend Node hiện có. Chỉ paper 1×, chỉ BTCUSDT và tối đa một vị thế. Tín hiệu dùng RSI 5 khung trên nến đóng; TP/SL dùng nến đóng 1m. Không có timer giữ Worker chạy trong bộ nhớ khi nhàn rỗi.
 
 `store.mjs`: SQLite và outbox; `engine.mjs`: runner dùng chung `../rsi-mtf.js`, `../paper-trading.js`; `worker.mjs`: API, lịch và Web Push. Mọi API ghi và alarm được tuần tự hóa trong cùng một object. Sổ và outbox ghi cùng transaction. Tối đa một trang 1.000 nến mỗi alarm khi khôi phục; tiến độ được lưu và tiếp tục sau 5 giây. Không tải toàn bộ lịch sử vào một alarm dài.
 
