@@ -1,3 +1,9 @@
+# v3.5.1 — trạng thái dữ liệu Binance và kiểm tra từ cloud
+
+[Hướng dẫn cập nhật khi gặp HTTP 403](CAP_NHAT_v3.5.1_DU_LIEU_BINANCE.md). Hiển thị lỗi dữ liệu bằng đèn đỏ, đọc phản hồi upstream, tôn trọng thời gian chờ và kiểm tra ngay trong Durable Object. Giữ RSI v4.1, BTC-only và sổ cũ. Bản này không tự gỡ chặn truy cập Binance.
+
+---
+
 # v3.5.0 — RSI v4.1 làm bộ chính, chỉ BTCUSDT
 
 [Cập nhật Cloudflare và frontend](CAP_NHAT_v3.5.0_RSI_V41.md). Ba nhóm Reversal/Momentum/Breakout được chuyển từ mã Python v4.1 bạn cung cấp và kiểm tra độc lập. Giữ sổ, auto, thông báo, giá trị lệnh và SL/TP hiện có.

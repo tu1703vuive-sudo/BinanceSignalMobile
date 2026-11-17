@@ -68,10 +68,14 @@
       $('paperAuto').checked=enabled;$('paperAuto').disabled=cloud?!online:!hasLocks||!!storageError||!book;
       if($('remoteStatus')){
         const cf=rv?.state?.platform==='cloudflare',u=rv?.state?.usage;
-        $('remoteStatus').classList.toggle('online',!!online);$('remoteStatus').classList.toggle('error',!!cloud&&!online);
-        $('remoteStatusText').textContent=cloud?(online?`${cf?'Cloudflare':'Máy chủ'} 24/7 · ${rv.state.symbol} · ${rv.state.health.state==='live'?'đang chạy':rv.state.health.detail}`:'Máy chủ mất kết nối · '+(rv.error||'đang kết nối')):'Trình duyệt · Cần kết nối máy chủ để chạy 24/7';
+        const failed=online&&rv.state.health.state==='error',mismatch=online&&rv.state.strategyVersion!==root.RsiMtf.VERSION;
+        const running=online&&!failed&&!mismatch&&rv.state.health.state==='live'&&enabled;
+        $('remoteStatus').classList.toggle('online',!!running);$('remoteStatus').classList.toggle('error',!!cloud&&(!online||failed||mismatch));$('remoteStatus').classList.toggle('waiting',!!online&&!running&&!failed&&!mismatch);
+        $('remoteStatusText').textContent=cloud?(online?`${cf?'Cloudflare':'Máy chủ'} 24/7 · ${rv.state.symbol} · ${rv.state.health.state==='live'?(enabled?'đang chạy':'tự vào lệnh đã tắt'):rv.state.health.detail}`:'Máy chủ mất kết nối · '+(rv.error||'đang kết nối')):'Trình duyệt · Cần kết nối máy chủ để chạy 24/7';
         $('remoteDisconnect').hidden=!cloud;$('remoteImport').hidden=!online||!!book?.open||!!book?.trades.length;
-        $('remoteSettingsStatus').textContent=cloud?(online?(cf?`Bot hoạt động khi tắt app. TP/SL: nến đóng 1 phút. Hôm nay (UTC): ${u?.alarms||0} lượt bot · ${u?.apiRequests||0} lượt app · ${u?.marketRequests||0} lượt dữ liệu. Xem hạn mức chính thức trong Cloudflare Dashboard.`:'Bot chạy trên máy chủ, giữ trạng thái khi tắt app.'):'Không chuyển sang bot trình duyệt khi máy chủ mất kết nối.'):'';
+        $('remoteSettingsStatus').textContent=cloud?(online?(cf?`${failed?'Cloudflare kết nối được; bot đang lỗi dữ liệu thị trường.':'Bot đã kết nối Cloudflare.'} TP/SL: nến đóng 1 phút. Hôm nay (UTC): ${u?.alarms||0} lượt bot · ${u?.apiRequests||0} lượt app · ${u?.marketRequests||0} lượt dữ liệu.`:'Bot chạy trên máy chủ, giữ trạng thái khi tắt app.'):'Không chuyển sang bot trình duyệt khi máy chủ mất kết nối.'):'';
+        if($('remoteMarketCheck')){$('remoteMarketCheck').hidden=!cf;$('remoteMarketCheck').disabled=!online;}
+        if($('remoteMarketResult')&&rv?.state?.marketDiagnostic){const d=rv.state.marketDiagnostic;$('remoteMarketResult').textContent=['Kiểm tra lúc '+new Date(d.at).toLocaleString('vi-VN'),d.ok?'Nến thử: lấy được':'Nến thử: chưa lấy được',d.detail,d.check?.message,d.nextAllowedAt>Date.now()?'Kiểm tra tiếp sau '+new Date(d.nextAllowedAt).toLocaleTimeString('vi-VN'):''].filter(Boolean).join('\n');}
       }
       root.dispatchEvent(new CustomEvent('paper:state',{detail:{enabled,open:!!book?.open}}));
       $('paperTarget').textContent='Chỉ BTCUSDT · RSI v4.1 · tối đa 1 lệnh mở';
@@ -188,6 +192,11 @@
     $('paperMore').onclick=()=>{historyCount+=20;render()};$('paperRetry').onclick=()=>void recover();
     root.addEventListener('storage',e=>{if(e.key===PREFS){try{const prefs=JSON.parse(localStorage.getItem(PREFS)||'{}');sound=prefs.sound===true;localAuto=prefs.auto!==false;if(!remote?.configured()){enabled=localAuto&&hasLocks&&!storageError;armedAt=Date.now()}$('paperSound').checked=sound;render()}catch{}return}if(e.key!==KEY||remote?.configured())return;const before=beforeSymbol();try{book=load();storageError='';adapter.monitoredChanged(before,beforeSymbol());syncInputs();render();if(book.open)void recover()}catch(error){storageError=error.message;enabled=false;render()}});
     if($('remoteConnect')){
+      if($('remoteMarketCheck'))$('remoteMarketCheck').onclick=async()=>{
+        const button=$('remoteMarketCheck');button.disabled=true;
+        try{const d=await remote.diagnoseMarket();$('remoteMarketResult').textContent=['Kiểm tra lúc '+new Date(d.at).toLocaleString('vi-VN'),d.ok?'Nến thử: lấy được':'Nến thử: chưa lấy được',d.detail,d.check?.message,'Thử tiếp sau '+new Date(d.nextAllowedAt).toLocaleTimeString('vi-VN')].filter(Boolean).join('\n');await remote.refresh()}
+        catch(e){$('remoteMarketResult').textContent=e.message}finally{button.disabled=false}
+      };
       const existing=remote?.view().cfg;if(existing){$('remoteUrl').value=existing.url;$('remoteToken').value=existing.token}
       $('remoteConnect').onclick=async()=>{try{await remote.connect($('remoteUrl').value,$('remoteToken').value);announce('Đã kết nối máy chủ 24/7. Bật thông báo đẩy một lần cho thiết bị này.')}catch(e){announce(e.message)}};
       $('remoteDisconnect').onclick=async()=>{try{await remote.disconnect();enabled=false;localAuto=false;armedAt=Date.now();savePrefs();render();announce('Đã dừng tự mở lệnh và chuyển về sổ trình duyệt.')}catch(e){announce(e.message)}};

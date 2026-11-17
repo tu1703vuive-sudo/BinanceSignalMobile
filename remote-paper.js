@@ -29,5 +29,5 @@
  async function disconnect(){if(state?.ledger.open)throw new Error('Máy chủ đang có lệnh. Tắt tự mở mới hoặc đóng lệnh trước khi chuyển về trình duyệt.');await action('/api/auto',{enabled:false});clearTimeout(timer);seq++;cfg=null;state=null;connected=false;localStorage.removeItem(KEY);callback.update?.()}
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')clearTimeout(timer);else if(configured())void refresh()});
  if(configured())setTimeout(()=>{void refresh();void autoPush()},0);
- return {configured,view:()=>({state,connected,error,cfg}),connect,refresh,action,disconnect,push};
+ return {configured,view:()=>({state,connected,error,cfg}),connect,refresh,action,disconnect,push,diagnoseMarket:()=>request('/api/diagnostics/market',{})};
 }}})(globalThis);
