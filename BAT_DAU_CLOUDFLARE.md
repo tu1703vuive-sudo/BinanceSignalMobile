@@ -1,6 +1,6 @@
-**Bản hiện tại: v3.5.0, bộ RSI chính v4.1.** Nếu đã cài Cloudflare, dùng [hướng dẫn cập nhật v3.5.0](CAP_NHAT_v3.5.0_RSI_V41.md). Các bước cài mới bên dưới vẫn áp dụng.
+**Bản hiện tại: v3.6.0, giá Binance Spot, bộ RSI chính v4.1.** Nếu đã cài Cloudflare, dùng [hướng dẫn cập nhật Spot, giữ khóa và sổ cũ](CAP_NHAT_v3.6.0_SPOT.md). Các bước cài mới bên dưới vẫn áp dụng.
 
-# BinanceSignalMobile v3.4.1 — chạy thử Cloudflare
+# BinanceSignalMobile v3.6.0 — chạy thử Cloudflare
 
 Giữ giao diện trên GitHub Pages. Chuyển riêng bot paper, sổ lệnh và Web Push lên một Cloudflare Worker + SQLite Durable Object. Sau khi triển khai và đăng ký thiết bị thành công, bot hoạt động khi đóng trình duyệt, tắt máy tính và khóa điện thoại.
 
@@ -23,7 +23,7 @@ paper-ui.js
 mobile-ui.js
 ```
 
-Đợi GitHub Pages triển khai xong, mở lại app. Trong Cài đặt sẽ thấy **v3.5.0 · RSI v4.1 · BTC**. Nếu vẫn hiện bản cũ, đóng toàn bộ cửa sổ app rồi mở lại / tải lại trang. Không xóa dữ liệu trình duyệt vì có thể làm mất sổ paper lưu cục bộ.
+Đợi GitHub Pages triển khai xong, mở lại app. Trong Cài đặt sẽ thấy **v3.6.0 · RSI v4.1 · BTC**. Nếu vẫn hiện bản cũ, đóng toàn bộ cửa sổ app rồi mở lại / tải lại trang. Không xóa dữ liệu trình duyệt vì có thể làm mất sổ paper lưu cục bộ.
 
 ## 2. Cài bot lên Cloudflare — làm một lần trên Windows
 
@@ -49,7 +49,7 @@ Script `deploy` tải mã nguồn, cài secrets rồi kiểm tra API bằng mã 
 
 1. Mở [app GitHub Pages](https://tu1703vuive-sudo.github.io/BinanceSignalMobile/).
 2. Vào **Paper Trading → Cài đặt & thông báo → Chạy 24/7 & thông báo đẩy**.
-3. Điền URL và mã từ `connection.txt`, nhấn **Kết nối 24/7**. Đợi hiện **Cloudflare 24/7 · BTCUSDT · đang chạy**. Nếu hiện lỗi Binance / dữ liệu, phải xử lý lỗi đó trước; kết nối API thành công chưa có nghĩa dữ liệu thị trường đã hoạt động.
+3. Điền URL và mã từ `connection.txt`, nhấn **Kết nối 24/7**. Đợi hiện **Cloudflare 24/7 · BTCUSDT · Spot · đang chạy**. Nếu hiện lỗi Binance / dữ liệu, phải xử lý lỗi đó trước; kết nối API thành công chưa có nghĩa dữ liệu thị trường đã hoạt động.
 4. Nhấn **Bật thông báo thiết bị** và chấp nhận quyền một lần. Nút cũng gửi thông báo thử. Hãy kiểm tra bạn thực sự nhận được trên điện thoại. Quyền hệ điều hành cần thao tác của bạn; website không thể tự cấp.
 5. iPhone: thêm website vào Màn hình chính, mở app từ biểu tượng đó rồi bật thông báo. Nếu chặn quyền trước đó, đổi lại trong cài đặt thiết bị. Chế độ Không làm phiền / hạn chế nền có thể ảnh hưởng thời điểm hiển thị.
 
@@ -82,7 +82,7 @@ Trong phần kết nối app có bộ đếm ngày UTC (đổi ngày lúc 07:00 
 
 | Hiện tượng | Cách xử lý |
 |---|---|
-| Không thấy v3.4.1 | Kiểm tra GitHub Pages đã deploy các file ở bước 1; đóng/mở lại app |
+| Không thấy v3.6.0 | Kiểm tra GitHub Pages đã deploy các file ở bước 1; đóng/mở lại app |
 | Mã kết nối không đúng | Chép lại từ `cloudflare/connection.txt`; không dùng Cloudflare API token làm mã app |
 | Origin không được phép | `ALLOWED_ORIGINS` phải là origin chính xác của website. Mặc định đã điền `https://tu1703vuive-sudo.github.io`; đổi miền thì sửa `wrangler.jsonc` và deploy lại |
 | Binance HTTP 451/403 | Cloudflare tại vị trí chạy có thể bị Binance từ chối. Bot giữ sổ, không bịa dữ liệu; chưa thể coi bản thử đã thành công. Không có cam kết Binance luôn cho phép egress Cloudflare |

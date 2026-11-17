@@ -1,7 +1,7 @@
 {
-  "name": "Signal · Futures Workspace",
+  "name": "Signal · Spot Workspace",
   "short_name": "Signal",
-  "description": "Binance Signal Market Monitor",
+  "description": "Binance Spot · RSI 5 khung · BTC paper trading",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

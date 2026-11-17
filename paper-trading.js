@@ -2,6 +2,8 @@
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.PaperTrading=api})(typeof globalThis!=='undefined'?globalThis:this,function(){
   'use strict';
   const PAPER_SYMBOL='BTCUSDT';
+  const PRICE_SOURCE='binance-spot-public',LEGACY_SOURCE='binance-futures';
+  const sourceOf=t=>t?.priceSource||LEGACY_SOURCE;
   const DEFAULTS=Object.freeze({initialCapital:10000,notional:100,slPct:1,tpPct:2,feePct:.05,slippagePct:.02});
   const clone=x=>JSON.parse(JSON.stringify(x));
   const positive=x=>Number.isFinite(x)&&x>0;
@@ -11,7 +13,7 @@
     for(const [k,[lo,hi]] of Object.entries(ranges))if(!Number.isFinite(out[k])||out[k]<lo||out[k]>hi)throw new Error(`Cấu hình ${k} không hợp lệ (${lo}–${hi}).`);
     return Object.fromEntries(Object.keys(DEFAULTS).map(k=>[k,out[k]]));
   }
-  function create(input){const cfg=config(input);return {schema:1,revision:0,config:cfg,cash:cfg.initialCapital,open:null,trades:[],lastSignals:{}}}
+  function create(input){const cfg=config(input);return {schema:1,revision:0,priceSource:PRICE_SOURCE,config:cfg,cash:cfg.initialCapital,open:null,trades:[],lastSignals:{}}}
   function restore(raw){
     if(raw==null)return create();
     const b=typeof raw==='string'?JSON.parse(raw):clone(raw);
@@ -19,6 +21,10 @@
     b.config=config(b.config);
     const validTrade=t=>t&&/^[A-Z0-9]{1,30}USDT$/.test(t.symbol)&&['LONG','SHORT'].includes(t.side)&&positive(t.entry)&&positive(t.qty)&&positive(t.notional)&&positive(t.entryAt)&&Number.isFinite(t.entryFee)&&t.entryFee>=0&&Number.isFinite(t.feePct)&&t.feePct>=0&&t.feePct<=1&&Number.isFinite(t.slippagePct)&&t.slippagePct>=0&&t.slippagePct<=1&&positive(t.sl)&&positive(t.tp)&&positive(t.lastPrice)&&Number.isFinite(t.score)&&t.rsi&&typeof t.rsi==='object'&&!Array.isArray(t.rsi)&&Object.values(t.rsi).every(v=>v&&Number.isFinite(v.confirmed)&&Number.isFinite(v.previous))&&Number.isFinite(t.lastObservedAt)&&t.lastObservedAt>=t.entryAt&&typeof t.id==='string';
     if((b.open&&!validTrade(b.open))||b.trades.some(t=>!validTrade(t)||!positive(t.exit)||!Number.isFinite(t.netPnl)||!Number.isFinite(t.exitFee)||!Number.isFinite(t.exitAt)||t.exitAt<t.entryAt)||Object.values(b.lastSignals).some(t=>!Number.isSafeInteger(t)||t<=0))throw new Error('Lịch sử paper bị lỗi. Không ghi đè dữ liệu cũ.');
+    const originalSource=b.priceSource||LEGACY_SOURCE;
+    if(![PRICE_SOURCE,LEGACY_SOURCE].includes(originalSource))throw new Error('Nguồn giá trong sổ không được hỗ trợ');
+    for(const t of [...b.trades,...(b.open?[b.open]:[])]){t.priceSource=t.priceSource||originalSource;if(![PRICE_SOURCE,LEGACY_SOURCE].includes(t.priceSource))throw new Error('Nguồn giá lệnh không được hỗ trợ')}
+    b.priceSource=PRICE_SOURCE;
     return b;
   }
   function configure(book,input){
@@ -29,6 +35,7 @@
   }
   function acceptSignal(book,signal,{now=Date.now(),armedAt=now}={}){
     if(signal?.symbol!==PAPER_SYMBOL)return {book,event:null,skip:'Paper Trading chỉ áp dụng BTCUSDT'};
+    if(signal.priceSource&&signal.priceSource!==PRICE_SOURCE)return {book,event:null,skip:'Lệnh mới chỉ sử dụng nguồn Binance Spot'};
     if(!signal||!['LONG','SHORT'].includes(signal.side)||!/^[A-Z0-9]{1,30}USDT$/.test(signal.symbol)||!positive(signal.price)||!Number.isSafeInteger(signal.signalAt)||signal.signalAt<=armedAt||now<signal.signalAt||now-signal.signalAt>30000||!Number.isFinite(signal.score))return {book,event:null,skip:'Tín hiệu cũ hoặc không hợp lệ'};
     if((book.lastSignals[signal.symbol]||0)>=signal.signalAt)return {book,event:null,skip:'Đã xử lý tín hiệu này'};
     const next=clone(book);next.lastSignals[signal.symbol]=signal.signalAt;
@@ -36,7 +43,7 @@
     const cfg=book.config,entry=signal.price*(1+(signal.side==='LONG'?1:-1)*cfg.slippagePct/100),entryFee=cfg.notional*cfg.feePct/100;
     if(book.cash<cfg.notional+entryFee)return {book:next,event:null,skip:'Không đủ số dư ảo'};
     const side=signal.side==='LONG'?1:-1;
-    const trade={id:`paper-${signal.symbol}-${signal.signalAt}`,symbol:signal.symbol,side:signal.side,entry,entryAt:now,signalAt:signal.signalAt,
+    const trade={id:`paper-${signal.symbol}-${signal.signalAt}`,priceSource:PRICE_SOURCE,symbol:signal.symbol,side:signal.side,entry,entryAt:now,signalAt:signal.signalAt,
       qty:cfg.notional/entry,notional:cfg.notional,entryFee,feePct:cfg.feePct,slippagePct:cfg.slippagePct,
       sl:entry*(1-side*cfg.slPct/100),tp:entry*(1+side*cfg.tpPct/100),slPct:cfg.slPct,tpPct:cfg.tpPct,
       score:signal.score,rsi:clone(signal.rsi||{}),why:signal.why||'RSI 5 khung xác nhận',lastObservedAt:now,lastPrice:signal.price};
@@ -86,5 +93,5 @@
     const realized=book.trades.reduce((s,t)=>s+t.netPnl,0),wins=book.trades.filter(t=>t.netPnl>0).length;
     return {cash:book.cash,realized,unrealized,equity:book.cash+(t?t.notional+unrealized+t.entryFee:0),closed:book.trades.length,wins};
   }
-  return Object.freeze({PAPER_SYMBOL,DEFAULTS,config,create,restore,configure,acceptSignal,close,mark,replay,stats});
+  return Object.freeze({PAPER_SYMBOL,PRICE_SOURCE,LEGACY_SOURCE,sourceOf,DEFAULTS,config,create,restore,configure,acceptSignal,close,mark,replay,stats});
 });

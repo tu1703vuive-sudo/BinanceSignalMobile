@@ -1,3 +1,11 @@
+# v3.6.0 — Binance Spot · RSI v4.1 · BTC paper
+
+[Cách cập nhật frontend và Cloudflare, giữ khóa và sổ cũ](CAP_NHAT_v3.6.0_SPOT.md). Chart, Watchlist, RSI và lệnh mới dùng giá Spot công khai. Deploy kiểm tra dữ liệu từ chính Cloudflare; chỉ trạng thái dữ liệu thành công mới xác nhận bot sẵn sàng.
+
+Các ghi chú phiên bản bên dưới là lịch sử; mô tả Futures của bản cũ đã được thay bằng Spot cho lệnh mới từ v3.6.0.
+
+---
+
 # v3.5.1 — trạng thái dữ liệu Binance và kiểm tra từ cloud
 
 [Hướng dẫn cập nhật khi gặp HTTP 403](CAP_NHAT_v3.5.1_DU_LIEU_BINANCE.md). Hiển thị lỗi dữ liệu bằng đèn đỏ, đọc phản hồi upstream, tôn trọng thời gian chờ và kiểm tra ngay trong Durable Object. Giữ RSI v4.1, BTC-only và sổ cũ. Bản này không tự gỡ chặn truy cập Binance.

@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='3.5.1';
+const APP_VERSION='3.6.0';
 const RSI_MTF_TIMEFRAMES=RsiMtf.FRAMES.map(f=>f.tf);
 const CHART_INDICATOR_VERSION='indicator-settings-v1';
 const DATA_ENGINE_VERSION='integrity-guard-v1';
@@ -26,6 +26,7 @@ const SHORT_STRATEGY=Object.freeze({
 });
 
 const MARKET_CONFIG={
+  spot:{label:'SPOT',apiBases:['https://data-api.binance.vision'],wsBase:'wss://data-stream.binance.vision/stream?streams=',klinesPath:'/api/v3/klines',ticker24Path:'/api/v3/ticker/24hr'},
   futures:{
     label:'FUTURES',
     apiBases:['https://fapi.binance.com'],
@@ -38,7 +39,7 @@ const DEFAULT_SYMBOLS=['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT'];
 const CHART_TIMEFRAMES=['15m','1h','4h','12h','1d','1w','1M'];
 const ANALYSIS_TIMEFRAMES={swing:['1M','1w','1d','12h','4h'],short:[...SHORT_STRATEGY.timeframes]};
 const storedMode=localStorage.getItem('bsm_mode')||'short';
-const storedMarket='futures';
+const storedMarket='spot';
 
 function safeJson(value,fallback){try{let x=JSON.parse(value);return x??fallback}catch{return fallback}}
 function marketStoreKey(name,market){return `bsm_${name}_${market}`}
@@ -49,8 +50,9 @@ function loadMarketData(market){
   if(!symbols.includes(selected))selected=symbols[0]||'BTCUSDT';
   return{symbols:[...new Set(symbols)],favorites:new Set(favorites),selected};
 }
-const initialMarket='futures';
-const initialMarketData=loadMarketData(initialMarket);
+const initialMarket='spot';
+const hasSpotPreferences=localStorage.getItem(marketStoreKey('symbols','spot'))!==null;
+const initialMarketData=loadMarketData(hasSpotPreferences?'spot':'futures');
 const DEFAULT_CHART_LAYERS=Object.freeze({rsi:false,volume:true,sr:false,trade:false,crosshair:true});
 function loadChartLayers(){
   try{
@@ -59,7 +61,7 @@ function loadChartLayers(){
   }catch{return {...DEFAULT_CHART_LAYERS}}
 }
 const state={
-  market:'futures',
+  market:'spot',
   mode:storedMode,
   chartTf:localStorage.getItem('bsm_chart_tf')||'4h',
   symbols:initialMarketData.symbols,
@@ -101,21 +103,22 @@ const paperUi=PaperUI.create({
   selected:()=>state.selected,
   connected:()=>navigator.onLine!==false&&state.ws?.readyState===1&&state.klineWs?.readyState===1,
   recoveryCandles:getPaperRecoveryCandles,
+  exitQuote:getPaperExitQuote,
   modeChanged:()=>setTimeout(()=>{connectTicker();connectKlines()},0),
   monitoredChanged:(before,after)=>{if([before,after].some(s=>s&&!state.symbols.includes(s)))connectTicker()}
 });
 
 function persist(){
-  localStorage.setItem('bsm_market','futures');
+  localStorage.setItem('bsm_market','spot');
   localStorage.setItem('bsm_mode',state.mode);
   localStorage.setItem('bsm_chart_tf',state.chartTf);
   localStorage.setItem('bsm_chart_layers',JSON.stringify(state.chartLayers));
-  localStorage.setItem(marketStoreKey('symbols','futures'),JSON.stringify(state.symbols));
-  localStorage.setItem(marketStoreKey('favorites','futures'),JSON.stringify([...state.favorites]));
-  localStorage.setItem(marketStoreKey('selected','futures'),state.selected);
+  localStorage.setItem(marketStoreKey('symbols','spot'),JSON.stringify(state.symbols));
+  localStorage.setItem(marketStoreKey('favorites','spot'),JSON.stringify([...state.favorites]));
+  localStorage.setItem(marketStoreKey('selected','spot'),state.selected);
 }
-function marketCfg(market='futures'){return MARKET_CONFIG.futures}
-function marketLabel(){return 'FUTURES'}
+function marketCfg(market='spot'){return MARKET_CONFIG[market]||MARKET_CONFIG.spot}
+function marketLabel(market='spot'){return marketCfg(market).label}
 function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
 function avg(arr){return arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:0;}
 function fmt(n){ if(n==null||!Number.isFinite(n)) return '--'; const a=Math.abs(n); let d=a>=1000?2:a>=1?4:a>=.01?6:8; return n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:d}); }
@@ -754,11 +757,19 @@ async function getKlines(symbol,interval,limit=260,market=state.market){
   let rows=await apiFetch(`${cfg.klinesPath}?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`,market);
   return rows.map(r=>({openTime:+r[0],open:+r[1],high:+r[2],low:+r[3],close:+r[4],volume:+r[5],closeTime:+r[6]}));
 }
-async function getPaperRecoveryCandles(symbol,since,until){
+async function getPaperExitQuote(symbol,source=PaperTrading.PRICE_SOURCE){
+  const legacy=source===PaperTrading.LEGACY_SOURCE,market=legacy?'futures':'spot';
+  const path=legacy?'/fapi/v1/ticker/price':'/api/v3/ticker/24hr';
+  const q=await apiFetch(path+'?symbol='+encodeURIComponent(symbol),market),price=+(legacy?q.price:q.lastPrice),time=+(legacy?q.time:q.closeTime),now=Date.now();
+  if(!Number.isFinite(price)||price<=0||!Number.isFinite(time)||now-time>10000||time-now>5000)throw new Error('Chưa có giá mới đúng nguồn để đóng lệnh');
+  return {price,at:now,priceSource:source};
+}
+async function getPaperRecoveryCandles(symbol,since,until,priceSource=PaperTrading.PRICE_SOURCE){
+  const market=priceSource===PaperTrading.LEGACY_SOURCE?'futures':'spot';
   let cursor=Math.floor(since/60000)*60000,end=Math.floor(until/60000)*60000,out=[];
   // Only this exceptional resume path fetches one-minute history for the open trade.
   for(let page=0;cursor<end&&page<100;page++){
-    const rows=await apiFetch(`/fapi/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=1m&startTime=${cursor}&endTime=${end-1}&limit=1000`);
+    const rows=await apiFetch(`${marketCfg(market).klinesPath}?symbol=${encodeURIComponent(symbol)}&interval=1m&startTime=${cursor}&endTime=${end-1}&limit=1000`,market);
     if(!Array.isArray(rows)||!rows.length)throw new Error('Thiếu nến 1 phút trong khoảng cần kiểm tra');
     const candles=rows.map(r=>({openTime:+r[0],open:+r[1],high:+r[2],low:+r[3],close:+r[4],volume:+r[5],closeTime:+r[6]}));
     for(const c of candles){
@@ -1128,7 +1139,7 @@ async function removeSymbol(s){
   let wasSelected=state.selected===s;state.symbols=state.symbols.filter(x=>x!==s);state.favorites.delete(s);state.tickers.delete(s);
   if(wasSelected)state.selected=state.symbols[0];state.candles={};if(wasSelected)state.liveKlines={};persist();renderWatchlist();renderSelectedTicker();connectTicker();if(wasSelected){connectKlines();await analyzeSelected();}
 }
-async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim();if(!s)return;if(!s.endsWith('USDT'))s+='USDT';els.add.disabled=true;try{let t=await validateSymbol(s,state.market);state.tickers.set(s,{price:t.price,change:t.change});if(!state.symbols.includes(s))state.symbols.push(s);state.selected=s;state.candles={};state.liveKlines={};els.input.value='';persist();renderWatchlist();connectTicker();connectKlines();await analyzeSelected()}catch{alert(`Không tìm thấy ${s} trên Binance USDⓈ-M Futures hoặc Binance đang chặn kết nối từ mạng hiện tại.`)}finally{els.add.disabled=false}}
+async function addSymbol(){let s=els.input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim();if(!s)return;if(!s.endsWith('USDT'))s+='USDT';els.add.disabled=true;try{let t=await validateSymbol(s,state.market);state.tickers.set(s,{price:t.price,change:t.change});if(!state.symbols.includes(s))state.symbols.push(s);state.selected=s;state.candles={};state.liveKlines={};els.input.value='';persist();renderWatchlist();connectTicker();connectKlines();await analyzeSelected()}catch{alert(`Không tìm thấy ${s} trên Binance Spot hoặc Binance đang chặn kết nối từ mạng hiện tại.`)}finally{els.add.disabled=false}}
 function setMode(m){state.mode=m;state.chartTf='4h';els.swing.classList.toggle('active',m==='swing');els.short.classList.toggle('active',m==='short');updateTimeframeButtons();persist();analyzeSelected()}
 els.swing.onclick=()=>setMode('swing');els.short.onclick=()=>setMode('short');els.add.onclick=addSymbol;els.input.addEventListener('keydown',e=>{if(e.key==='Enter')addSymbol()});els.refresh.onclick=()=>analyzeSelected({forceRest:true,source:'manual'});els.tfSelector?.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>setChartTimeframe(b.dataset.tf)));
 function updateChartPointer(e){
