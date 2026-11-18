@@ -1,0 +1,8 @@
+{
+  "name": "binance-signal-mobile-hybrid",
+  "version": "3.8.0",
+  "private": true,
+  "type": "commonjs",
+  "engines": {"node": "24.x"},
+  "scripts": {"test:hybrid": "node --test vercel/tests/*.test.mjs cloudflare/tests/hybrid*.test.mjs"}
+}

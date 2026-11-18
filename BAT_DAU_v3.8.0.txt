@@ -1,0 +1,15 @@
+SIGNAL v3.8.0 - CLOUDFLARE + VERCEL
+
+1. Giai nen. Chep cloudflare/secrets.json ban cu sang ban moi.
+2. Mo PowerShell trong cloudflare ban moi: npm ci, roi npm run hybrid.
+   Nhan Enter neu chua co URL. Mo hybrid-connection.txt de lay EXECUTOR_TOKEN.
+3. Tai NOI DUNG thu muc GITHUB_UPLOAD vao goc repo GitHub.
+   Vercel: Import repo, Root Directory goc, Other, Node 24.x.
+   Them EXECUTOR_TOKEN vao Environment Variables / Production, roi Deploy.
+4. Quay lai cloudflare: npm run hybrid -- https://TEN-DU-AN.vercel.app
+   Sau do: npm run deploy
+5. App van ket noi URL Cloudflare cu. Doi Cloudflare + Vercel dang chay, thu push.
+
+Huong dan tieng Viet day du: CAP_NHAT_v3.8.0_VERCEL_CLOUDFLARE.md
+KHONG tai secrets.json, connection.txt, hybrid-connection.txt, node_modules len GitHub.
+Chi paper trading, khong dat lenh that.

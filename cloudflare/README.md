@@ -1,3 +1,13 @@
+**Bản hiện tại v3.8.0 kết hợp Vercel.** [Cài theo thứ tự](../CAP_NHAT_v3.8.0_VERCEL_CLOUDFLARE.md): giữ secrets cũ → npm run hybrid → deploy Vercel với EXECUTOR_TOKEN → npm run hybrid -- URL → npm run deploy. Worker giữ sổ/lịch/push; không lấy dữ liệu thị trường trực tiếp trong mode hybrid.
+
+**Hiện tại v3.7.1:** [giảm lượt gọi và xử lý OKX 429](../CAP_NHAT_v3.7.1_GIAM_LOI_429.md). Giữ thời gian chờ và sổ hiện có khi deploy. Các ghi chú phiên bản phía dưới là lịch sử.
+
+**Bản hiện tại v3.7.0 dùng OKX Spot.** [Cập nhật giữ khóa và sổ cũ](../CAP_NHAT_v3.7.0_OKX_SPOT.md). Build cần `../market-data.js`, `../binance-market.js`, `../rsi-mtf.js`, `../paper-trading.js`. Các ghi chú phiên bản dưới đây là lịch sử.
+
+**Bản hiện tại v3.6.0 dùng giá Spot.** [Cập nhật giữ khóa và sổ cũ](../CAP_NHAT_v3.6.0_SPOT.md). Giữ module `../binance-market.js`; `deploy.mjs` kiểm tra nguồn Spot từ chính Durable Object sau khi upload. Các ghi chú phiên bản dưới đây là lịch sử.
+
+**v3.5.1:** [trạng thái dữ liệu và chẩn đoán Binance](../CAP_NHAT_v3.5.1_DU_LIEU_BINANCE.md). Module ../binance-market.js cần có khi build/deploy.
+
 **v3.5.0 dùng RSI v4.1.** [Hướng dẫn nâng cấp](../CAP_NHAT_v3.5.0_RSI_V41.md). Giữ khóa và sổ cũ; không tạo bot mới.
 
 **Đã cài bản cũ?** Đọc [cập nhật BTC-only](../CAP_NHAT_v3.4.1_BTC.md), giữ secrets và sổ cũ.

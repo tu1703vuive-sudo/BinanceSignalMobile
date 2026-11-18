@@ -36,13 +36,13 @@
     const minimum=category==='ACCESS_RESTRICTED'?3600000:category==='ACCESS_DENIED'?900000:category==='RATE_LIMIT'?60000:10000;
     const e=new Error(`OKX ${code?'API '+code:'HTTP '+status} · ${message}`);e.retryAfter=Math.max(minimum,retry);e.upstream={status,code,priceSource:SOURCE,category,message,route,checkedAt:now};return e;
   }
-  async function request(path,{fetcher=fetch,now=Date.now,onRequest=()=>{},source=SOURCE}={}){
+  async function request(path,{fetcher=fetch,now=Date.now,onRequest=()=>{},beforeRequest=async()=>{},source=SOURCE}={}){
     if(source!==SOURCE)return binance.request(path,{fetcher,now,onRequest,source});
     const url=new URL(path,BASE);
     if(url.origin!==BASE||!['/api/v5/market/candles','/api/v5/market/history-candles','/api/v5/market/ticker'].includes(url.pathname))throw new Error('Chỉ cho phép API dữ liệu Spot công khai');
     symbol(url.searchParams.get('instId'));
     async function get(u){
-      onRequest();const r=await fetcher(u.href,{headers:{Accept:'application/json'},redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(8000)});
+      await beforeRequest();onRequest();const r=await fetcher(u.href,{headers:{Accept:'application/json'},redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(8000)});
       if(!r.ok){let raw=await bodyText(r);try{raw=JSON.parse(raw).msg||raw}catch{}const h=r.headers.get('Retry-After'),retry=h?(/^\d+(?:\.\d+)?$/.test(h)?+h*1000:Math.max(0,Date.parse(h)-now())):0;throw failure(r.status,raw,u.pathname,now(),Number.isFinite(retry)?retry:0)}
       const data=await r.json();if(data.code!=='0'||!Array.isArray(data.data))throw failure(r.status,data.msg||'Phản hồi API không hợp lệ',u.pathname,now(),0,data.code||'INVALID_RESPONSE');return data.data;
     }

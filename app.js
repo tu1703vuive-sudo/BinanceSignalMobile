@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='3.7.0';
+const APP_VERSION='3.8.0';
 const RSI_MTF_TIMEFRAMES=RsiMtf.FRAMES.map(f=>f.tf);
 const CHART_INDICATOR_VERSION='indicator-settings-v1';
 const DATA_ENGINE_VERSION='integrity-guard-v1';

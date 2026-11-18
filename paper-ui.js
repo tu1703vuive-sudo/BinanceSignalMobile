@@ -5,11 +5,12 @@
     const core=root.PaperTrading,$=id=>document.getElementById(id),panel=$('paperPanel');
     if(!panel)return null;
     let book=null,enabled=true,armedAt=Date.now(),recovering=false,recoveryError='',storageError='',message='Tự vào lệnh đã bật · đang chờ xác nhận RSI mới.',historyCount=20;
-    let feedAt=0,lastSave=0,audio=null,toastTimer=null,quoteTimer=null,latestQuotes=new Map(),lastRecoveryTry=0;
+    let feedAt=0,lastSave=0,audio=null,toastTimer=null,quoteTimer=null,latestQuotes=new Map(),lastRecoveryTry=0,marketChecking=false;
     const hasLocks=typeof navigator.locks?.request==='function';
     const money=x=>Number.isFinite(x)?x.toLocaleString('en-US',{maximumFractionDigits:2,minimumFractionDigits:2}):'--';
     const price=x=>Number.isFinite(x)?x.toLocaleString('en-US',{maximumSignificantDigits:9}):'--';
     const stamp=x=>new Date(x).toLocaleString('vi-VN');
+    const diagnosticText=d=>[(d.cached?'Kết quả đã lưu lúc ':'Kiểm tra lúc ')+stamp(d.check?.checkedAt||d.at),d.requestSent===false?'Không gửi thêm yêu cầu tới OKX.':'',d.ok?'Dữ liệu kiểm tra: lấy được':'Dữ liệu kiểm tra: chưa lấy được',d.detail,d.check?.message,d.nextAllowedAt>Date.now()?'Kiểm tra tiếp sớm nhất sau '+new Date(d.nextAllowedAt).toLocaleTimeString('vi-VN'):''].filter(Boolean).join('\n');
     const escape=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const sourceLabel=t=>core.sourceLabel(t);
     try{book=core.restore(localStorage.getItem(KEY))}catch(e){storageError=e.message}
@@ -68,21 +69,21 @@
       const rv=remote?.view(),cloud=remote?.configured(),online=cloud&&rv.connected;
       $('paperAuto').checked=enabled;$('paperAuto').disabled=cloud?!online:!hasLocks||!!storageError||!book;
       if($('remoteStatus')){
-        const cf=rv?.state?.platform==='cloudflare',u=rv?.state?.usage;
+        const cf=rv?.state?.platform==='cloudflare',hybrid=cf&&rv?.state?.executionMode==='hybrid',u=rv?.state?.usage;
         const failed=online&&rv.state.health.state==='error',mismatch=online&&(rv.state.strategyVersion!==root.RsiMtf.VERSION||rv.state.priceSource!==core.PRICE_SOURCE);
-        const running=online&&!failed&&!mismatch&&rv.state.health.state==='live'&&enabled;
+        const running=online&&!failed&&!mismatch&&rv.state.health.state==='live'&&enabled&&(!hybrid||rv.state.executor?.connected===true);
         $('remoteStatus').classList.toggle('online',!!running);$('remoteStatus').classList.toggle('error',!!cloud&&(!online||failed||mismatch));$('remoteStatus').classList.toggle('waiting',!!online&&!running&&!failed&&!mismatch);
-        $('remoteStatusText').textContent=cloud?(online?`${cf?'Cloudflare':'Máy chủ'} 24/7 · ${rv.state.symbol} · ${core.sourceLabel({priceSource:rv.state.priceSource})} · ${rv.state.health.state==='live'?(enabled?'đang chạy':'tự vào lệnh đã tắt'):rv.state.health.detail}`:'Máy chủ mất kết nối · '+(rv.error||'đang kết nối')):'Trình duyệt · Cần kết nối máy chủ để chạy 24/7';
+        $('remoteStatusText').textContent=cloud?(online?`${hybrid?'Cloudflare + Vercel':cf?'Cloudflare':'Máy chủ'} 24/7 · ${rv.state.symbol} · ${core.sourceLabel({priceSource:rv.state.priceSource})} · ${rv.state.health.state==='live'?(enabled?'đang chạy':'tự vào lệnh đã tắt'):rv.state.health.detail}`:'Máy chủ mất kết nối · '+(rv.error||'đang kết nối')):'Trình duyệt · Cần kết nối máy chủ để chạy 24/7';
         $('remoteDisconnect').hidden=!cloud;$('remoteImport').hidden=!online||!!book?.open||!!book?.trades.length;
-        $('remoteSettingsStatus').textContent=cloud?(online?(cf?`${failed?'Cloudflare kết nối được; bot đang lỗi dữ liệu thị trường.':'Bot đã kết nối Cloudflare.'} TP/SL: nến đóng 1 phút. Hôm nay (UTC): ${u?.alarms||0} lượt bot · ${u?.apiRequests||0} lượt app · ${u?.marketRequests||0} lượt dữ liệu.`:'Bot chạy trên máy chủ, giữ trạng thái khi tắt app.'):'Không chuyển sang bot trình duyệt khi máy chủ mất kết nối.'):'';
-        if($('remoteMarketCheck')){$('remoteMarketCheck').hidden=!cf;$('remoteMarketCheck').disabled=!online;}
-        if($('remoteMarketResult')&&rv?.state?.marketDiagnostic){const d=rv.state.marketDiagnostic;$('remoteMarketResult').textContent=['Kiểm tra lúc '+new Date(d.at).toLocaleString('vi-VN'),d.ok?'Nến thử: lấy được':'Nến thử: chưa lấy được',d.detail,d.check?.message,d.nextAllowedAt>Date.now()?'Kiểm tra tiếp sau '+new Date(d.nextAllowedAt).toLocaleTimeString('vi-VN'):''].filter(Boolean).join('\n');}
+        $('remoteSettingsStatus').textContent=cloud?(online?(cf?`${hybrid?'Vercel xử lý; Cloudflare giữ lịch, sổ và push.':failed?'Cloudflare kết nối được; bot đang lỗi dữ liệu thị trường.':'Bot đã kết nối Cloudflare.'} TP/SL: nến đóng 1 phút. Hôm nay (UTC): ${u?.alarms||0} lượt bot · ${u?.apiRequests||0} lượt app · ${u?.marketRequests||0} lượt dữ liệu${hybrid?' · '+(u?.executorRequests||0)+' lượt Vercel':''}.`:'Bot chạy trên máy chủ, giữ trạng thái khi tắt app.'):'Không chuyển sang bot trình duyệt khi máy chủ mất kết nối.'):'';
+        if($('remoteMarketCheck')){$('remoteMarketCheck').hidden=!cf;$('remoteMarketCheck').disabled=!online||marketChecking||rv?.state?.marketDiagnostic?.nextAllowedAt>Date.now();}
+        if($('remoteMarketResult')&&rv?.state?.marketDiagnostic)$('remoteMarketResult').textContent=diagnosticText(rv.state.marketDiagnostic);
       }
       root.dispatchEvent(new CustomEvent('paper:state',{detail:{enabled,open:!!book?.open}}));
       $('paperTarget').textContent='Chỉ BTCUSDT · OKX SPOT · RSI v4.1 · tối đa 1 lệnh mở';
       $('paperStatus').textContent=cloud?(online?(recoveryError|| (enabled?'Tự vào lệnh đang BẬT trên máy chủ; không phụ thuộc điện thoại.':'Tự vào lệnh đang TẮT trên máy chủ.')):'Đang giữ sổ máy chủ. Chưa nhận được trạng thái mới; không tự mở lệnh trên trình duyệt.') : storageError||recoveryError||(recovering?'Đang kiểm tra nến bị bỏ lỡ; tạm dừng mở/đóng theo giá mới.':!hasLocks?'Trình duyệt chưa hỗ trợ khóa chống lệnh trùng. Hãy dùng Chrome/Safari mới.':document.visibilityState!=='visible'?'Tab đang ẩn · tạm dừng mở lệnh mới.':enabled?message:'Tự vào lệnh đang TẮT. Lệnh đang mở vẫn được theo dõi khi có dữ liệu.');
       $('paperStatus').classList.toggle('paper-error',!!storageError||!!recoveryError);
-      if(online&&(rv.state.strategyVersion!==root.RsiMtf.VERSION||rv.state.priceSource!==core.PRICE_SOURCE)){$('paperStatus').textContent='Máy chủ chưa dùng nguồn OKX Spot mới. Cập nhật và deploy backend v3.7.0 để đồng bộ nguồn giá.';$('paperStatus').classList.add('paper-error')}
+      if(online&&(rv.state.strategyVersion!==root.RsiMtf.VERSION||rv.state.priceSource!==core.PRICE_SOURCE)){$('paperStatus').textContent='Máy chủ chưa dùng nguồn OKX Spot mới. Cập nhật và deploy backend v3.8.0 để đồng bộ nguồn giá.';$('paperStatus').classList.add('paper-error')}
       if(book?.open&&book.open.symbol!==core.PAPER_SYMBOL)$('paperStatus').textContent+=` Lệnh cũ ${book.open.symbol} được quản lý đến khi đóng; lệnh mới chỉ BTCUSDT.`;
       if(book?.open&&core.sourceOf(book.open)!==core.PRICE_SOURCE)$('paperStatus').textContent+=' Lệnh cũ giữ nguyên nguồn '+sourceLabel(book.open)+' đến khi đóng.';
       $('paperNotify').textContent=!('Notification' in root)?'Thông báo trong app':Notification.permission==='granted'?'✓ Đã bật thông báo':'Bật thông báo thiết bị';
@@ -198,9 +199,9 @@
     root.addEventListener('storage',e=>{if(e.key===PREFS){try{const prefs=JSON.parse(localStorage.getItem(PREFS)||'{}');sound=prefs.sound===true;localAuto=prefs.auto!==false;if(!remote?.configured()){enabled=localAuto&&hasLocks&&!storageError;armedAt=Date.now()}$('paperSound').checked=sound;render()}catch{}return}if(e.key!==KEY||remote?.configured())return;const before=beforeSymbol();try{book=load();storageError='';adapter.monitoredChanged(before,beforeSymbol());syncInputs();render();if(book.open)void recover()}catch(error){storageError=error.message;enabled=false;render()}});
     if($('remoteConnect')){
       if($('remoteMarketCheck'))$('remoteMarketCheck').onclick=async()=>{
-        const button=$('remoteMarketCheck');button.disabled=true;
-        try{const d=await remote.diagnoseMarket();$('remoteMarketResult').textContent=['Kiểm tra lúc '+new Date(d.at).toLocaleString('vi-VN'),d.ok?'Nến thử: lấy được':'Nến thử: chưa lấy được',d.detail,d.check?.message,'Thử tiếp sau '+new Date(d.nextAllowedAt).toLocaleTimeString('vi-VN')].filter(Boolean).join('\n');await remote.refresh()}
-        catch(e){$('remoteMarketResult').textContent=e.message}finally{button.disabled=false}
+        const button=$('remoteMarketCheck');marketChecking=true;button.disabled=true;
+        try{const d=await remote.diagnoseMarket();$('remoteMarketResult').textContent=diagnosticText(d);await remote.refresh()}
+        catch(e){$('remoteMarketResult').textContent=e.message}finally{marketChecking=false;render()}
       };
       const existing=remote?.view().cfg;if(existing){$('remoteUrl').value=existing.url;$('remoteToken').value=existing.token}
       $('remoteConnect').onclick=async()=>{try{await remote.connect($('remoteUrl').value,$('remoteToken').value);announce('Đã kết nối máy chủ 24/7. Bật thông báo đẩy một lần cho thiết bị này.')}catch(e){announce(e.message)}};

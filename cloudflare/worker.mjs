@@ -1,7 +1,9 @@
+import marketTransport from '../market-data.js';
 import {CloudEngine} from './engine.mjs';
+import {HybridEngine} from './hybrid-engine.mjs';
 import {Store} from './store.mjs';
 import {buildPushPayload} from '@block65/webcrypto-web-push';
-const VERSION='3.5.0',MAX_BODY=2*1024*1024;
+const VERSION='3.8.0',MAX_BODY=2*1024*1024;
 const json=(value,status=200,headers={})=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});
 const hex=b=>Array.from(new Uint8Array(b),x=>x.toString(16).padStart(2,'0')).join('');
 const hash=async s=>hex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)));
@@ -14,7 +16,7 @@ export default {
     const cors=origin?{'Access-Control-Allow-Origin':origin,'Vary':'Origin'}:{};
     if(request.method==='OPTIONS')return new Response(null,{status:204,headers:{...cors,'Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Max-Age':'86400'}});
     const path=new URL(request.url).pathname;
-    if(request.method==='GET'&&path==='/health')return json({ok:true,version:VERSION,platform:'cloudflare'},200,cors);
+    if(request.method==='GET'&&path==='/health')return json({ok:true,version:VERSION,platform:'cloudflare',market:'spot',exchange:'okx',priceSource:marketTransport.SOURCE,executionMode:env.EXECUTION_MODE||'hybrid',executorConfigured:!!(env.EXECUTOR_URL&&env.EXECUTOR_TOKEN)},200,cors);
     if(!path.startsWith('/api/'))return json({error:'Signal Paper API · giao diện nằm trên GitHub Pages'},404,cors);
     if(!env.BOT_TOKEN||env.BOT_TOKEN.length<24)return json({error:'Chưa cài secrets; chạy npm run setup rồi npm run deploy'},503,cors);
     if(!await equal(request.headers.get('Authorization')||'','Bearer '+env.BOT_TOKEN))return json({error:'Mã kết nối không đúng'},401,cors);
@@ -30,7 +32,7 @@ export function subscription(input){
   return {endpoint:u.href,keys:{auth:input.keys.auth,p256dh:input.keys.p256dh}};
 }
 export class PaperAccount{
-  constructor(ctx,env){this.ctx=ctx;this.env=env;this.store=new Store(ctx.storage);this.engine=new CloudEngine(this.store);this.queue=Promise.resolve();this.rate={minute:0,n:0}}
+  constructor(ctx,env){this.ctx=ctx;this.env=env;this.store=new Store(ctx.storage);this.engine=env.EXECUTION_MODE==='cloudflare'?new CloudEngine(this.store):new HybridEngine(this.store,{url:env.EXECUTOR_URL,token:env.EXECUTOR_TOKEN,bypass:env.VERCEL_PROTECTION_BYPASS});this.queue=Promise.resolve();this.rate={minute:0,n:0}}
   exclusive(fn){const result=this.queue.then(fn);this.queue=result.catch(()=>{});return result}
   pushReady(){return !!(this.env.VAPID_PUBLIC_KEY&&this.env.VAPID_PRIVATE_KEY&&this.env.VAPID_SUBJECT)}
   async send(sub,payload,ttl=3600){
@@ -59,8 +61,24 @@ export class PaperAccount{
     return await this.ctx.storage.getAlarm();
   }
   async snapshot(url){
-    const snap={...this.engine.snapshot(),vapidPublicKey:this.env.VAPID_PUBLIC_KEY||null,pushReady:this.pushReady(),usage:{...this.store.usage,note:'Bộ đếm ứng dụng, không thay thế Cloudflare Billing'},nextAlarm:await this.ctx.storage.getAlarm()};
+    const snap={...this.engine.snapshot(),backendVersion:VERSION,marketDiagnostic:this.store.get('marketDiagnostic'),vapidPublicKey:this.env.VAPID_PUBLIC_KEY||null,pushReady:this.pushReady(),usage:{...this.store.usage,note:'Bộ đếm ứng dụng, không thay thế Cloudflare Billing'},nextAlarm:await this.ctx.storage.getAlarm()};
     const raw=url.searchParams.get('tradesSince');if(raw!==null){const n=Number(raw);if(Number.isSafeInteger(n)&&n>=0&&n<=snap.ledger.trades.length){snap.tradesOffset=n;snap.ledger.trades=snap.ledger.trades.slice(n)}}return snap;
+  }
+  async diagnoseMarket(){
+    const now=Date.now(),last=this.store.get('marketDiagnostic'),rt=this.engine.runtime;
+    if(this.engine instanceof HybridEngine&&!this.engine.client)return this.engine.diagnoseRemote();
+    if(rt.health.upstream?.priceSource===marketTransport.SOURCE&&rt.retryAt>now){const report={ok:false,source:'OKX Spot · dữ liệu công khai',priceSource:marketTransport.SOURCE,at:rt.health.upstream.checkedAt||now,check:rt.health.upstream,detail:rt.health.detail,nextAllowedAt:rt.retryAt,cached:true,requestSent:false};this.store.put('marketDiagnostic',report);return report}
+    if(this.engine.read().autoEnabled&&rt.health.state==='live'&&rt.bucket===Math.floor(now/900000)&&['1M','1d','4h','1h','15m'].every(tf=>rt.frames?.[tf]?.ready&&rt.frames[tf].healthy)){const report={ok:true,source:'OKX Spot · dữ liệu bot đã đồng bộ',priceSource:marketTransport.SOURCE,at:rt.health.lastSignalCheck,detail:'Bot đã lấy đủ 5 khung OKX trong chu kỳ hiện tại; không gửi thêm yêu cầu kiểm tra.',nextAllowedAt:now+60000,cached:true,requestSent:false};this.store.put('marketDiagnostic',report);return report}
+    if(last&&now<last.nextAllowedAt)return {...last,cached:true,requestSent:false};
+    if(this.engine instanceof HybridEngine){const report=await this.engine.diagnoseRemote();this.store.put('marketDiagnostic',report);return report}
+    let report;
+    try{
+      const cs=await this.engine.fetchMarket(marketTransport.candlesPath('BTCUSDT','15m',{limit:2}));
+      if(!Array.isArray(cs)||cs.length!==2||cs.some(c=>!Number.isFinite(+c[4])||+c[4]<=0))throw new Error('OKX trả nến không hợp lệ');
+      report={ok:true,source:'OKX Spot · dữ liệu công khai',priceSource:marketTransport.SOURCE,at:now,requestSent:true,check:{status:200,route:'/api/v5/market/candles'},detail:'Cloudflare lấy được nến OKX BTC 15m. Bot vẫn phải kiểm tra đủ 5 khung và lệnh đang mở trước khi tiếp tục.',nextAllowedAt:now+60000};
+      rt.frames=null;rt.bucket=null;if(!rt.health.upstream||rt.health.upstream.priceSource===marketTransport.SOURCE){rt.retryAt=0;rt.health={...rt.health,state:'starting',detail:'Đã lấy được nến Spot thử; đang chờ kiểm tra đủ dữ liệu bot',upstream:null,retryAt:0}}this.engine.saveRuntime();
+    }catch(e){this.engine.recordFailure(e);report={ok:false,source:'OKX Spot · dữ liệu công khai',priceSource:marketTransport.SOURCE,at:e.upstream?.checkedAt||now,requestSent:true,check:e.upstream||{category:'CONNECTION_ERROR',message:String(e.message).slice(0,300)},detail:this.engine.runtime.health.detail,nextAllowedAt:this.engine.runtime.retryAt}}
+    this.store.put('marketDiagnostic',report);return report;
   }
   fetch(request){return this.exclusive(async()=>{
     try{
@@ -82,6 +100,7 @@ export class PaperAccount{
         case '/api/config':this.engine.configure(data.config);break;
         case '/api/import':this.engine.importBook(data.ledger);break;
         case '/api/close':await this.engine.manualClose(data.id);break;
+        case '/api/diagnostics/market':result=await this.diagnoseMarket();break;
         case '/api/push/subscribe':{if(!this.pushReady())throw new Error('Cloud chưa cài VAPID');const sub=subscription(data.subscription),id=await hash(sub.endpoint);this.store.subscribe(id,sub);result={ok:true};break}
         case '/api/push/test':{const sub=subscription(data.subscription);await this.send(sub,{id:'test-'+Date.now(),title:'Signal · Cloudflare 24/7',body:'Dịch vụ push đã nhận thông báo thử từ Cloudflare.',at:Date.now()},60);result={ok:true,detail:'Dịch vụ push đã nhận yêu cầu'};break}
         default:return json({error:'Không có API này'},404);

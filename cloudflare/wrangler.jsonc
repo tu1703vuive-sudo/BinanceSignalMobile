@@ -8,6 +8,7 @@
   "migrations": [{"tag": "v1", "new_sqlite_classes": ["PaperAccount"]}],
   "triggers": {"crons": ["*/5 * * * *"]},
   "vars": {
+    "EXECUTION_MODE": "hybrid",
     "ALLOWED_ORIGINS": "https://tu1703vuive-sudo.github.io",
     "VAPID_SUBJECT": "https://tu1703vuive-sudo.github.io/BinanceSignalMobile/"
   },
