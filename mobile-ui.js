@@ -9,5 +9,4 @@
  buttons.forEach(b=>b.onclick=()=>{clickedAt=Date.now();activate(b.dataset.section);$(b.dataset.section).scrollIntoView({behavior:root.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'})});activate('watchlist');
  if('IntersectionObserver'in root){const observer=new IntersectionObserver(entries=>{if(Date.now()-clickedAt<1000)return;const visible=entries.filter(e=>e.isIntersecting).sort((a,b)=>b.intersectionRatio-a.intersectionRatio);if(visible[0])activate(visible[0].target.id)},{rootMargin:'-75px 0px -25% 0px',threshold:[.1,.3,.6]});buttons.forEach(b=>observer.observe($(b.dataset.section)))}
  const clock=()=>{if(document.visibilityState!=='visible')return;const s=900-Math.floor(Date.now()/1000)%900;$('rsiCountdown').textContent=`15M · ${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`};clock();setInterval(clock,1000);
- root.addEventListener('paper:state',e=>{$('paperNavBadge').hidden=!e.detail.open;$('paperPanel').dataset.auto=String(e.detail.enabled)});
 }}})(globalThis);

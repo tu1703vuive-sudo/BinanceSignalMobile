@@ -1,20 +1,19 @@
-const CACHE='binance-signal-v3-8-0-hybrid';
-const ASSETS=['./','./index.html','./styles.css?v=380','./binance-market.js?v=380','./market-data.js?v=380','./rsi-mtf.js?v=380','./paper-trading.js?v=380','./remote-paper.js?v=380','./paper-ui.js?v=380','./mobile-ui.js?v=380','./app.js?v=380','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE='binance-signal-v3-9-0-futures';
+const ASSETS=['./','./index.html','./styles.css?v=390','./futures-market.js?v=390','./rsi-mtf.js?v=390','./mobile-ui.js?v=390','./app.js?v=390','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 
 self.addEventListener('install',e=>e.waitUntil(
   caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())
 ));
 
-self.addEventListener('activate',e=>e.waitUntil(
-  caches.keys()
-    .then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))
-    .then(()=>self.clients.claim())
-));
+self.addEventListener('activate',e=>e.waitUntil(Promise.all([
+  caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('binance-signal-')&&k!==CACHE).map(k=>caches.delete(k)))),
+  self.registration.pushManager?.getSubscription().then(sub=>sub?.unsubscribe()).catch(()=>{})
+]).then(()=>self.clients.claim())));
 
 self.addEventListener('fetch',e=>{
   if(e.request.method!=='GET')return;
   const u=new URL(e.request.url);
-  if(u.origin!==location.origin)return;
+  if(u.origin!==location.origin||u.pathname.includes('/api/'))return;
 
   if(e.request.mode==='navigate'){
     e.respondWith(
@@ -44,19 +43,5 @@ self.addEventListener('fetch',e=>{
   );
 });
 
-self.addEventListener('notificationclick',e=>{
-  e.notification.close();
-  e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(async windows=>{
-    const url=new URL('./',self.registration.scope).href;
-    const client=windows.find(c=>c.url.startsWith(self.registration.scope));
-    if(client)return client.focus();
-    return self.clients.openWindow(url);
-  }));
-});
-
-self.addEventListener('push',e=>{
-  let data={};try{data=e.data?.json()||{}}catch{}
-  const title=typeof data.title==='string'?data.title.slice(0,150):'Signal · Paper Trading';
-  const body=typeof data.body==='string'?data.body.slice(0,600):'Có cập nhật mới từ bot giả lập.';
-  e.waitUntil(self.registration.showNotification(title,{body,tag:typeof data.id==='string'?data.id:'signal-paper',icon:'./icons/icon-192.png',badge:'./icons/icon-192.png',data:{at:data.at||Date.now()}}));
-});
+// Old push deliveries are ignored after this read-only version takes control.
+self.addEventListener('push',e=>e.waitUntil(Promise.resolve()));

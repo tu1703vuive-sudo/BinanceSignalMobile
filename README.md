@@ -1,9 +1,7 @@
-# Signal v3.8.0 — Vercel + Cloudflare
+# Signal · Binance Futures v3.9.0
 
-App di động GitHub Pages, RSI v4.1 năm khung; chỉ paper trading BTC. Cloudflare giữ lịch, sổ lệnh và push; Vercel lấy OKX Spot và xử lý mỗi lượt.
+Ứng dụng di động: Watchlist, Chart, RSI 14 năm khung (1M tháng / 1D / 4H / 1H / 15M) và phân tích Short/Swing. Dùng dữ liệu Binance USDⓈ-M Futures trực tiếp, giữ bộ RSI v4.1.
 
-Hướng dẫn triển khai: [CAP_NHAT_v3.8.0_VERCEL_CLOUDFLARE.md](CAP_NHAT_v3.8.0_VERCEL_CLOUDFLARE.md).
+Đã bỏ paper trading, backend bot và thông báo lệnh. Không cần API key hoặc máy chủ riêng cho app.
 
-Cài Vercel từ gốc repo, đặt EXECUTOR_TOKEN ở Production. Cloudflare vẫn dùng Worker cũ và secrets trên máy riêng. Không tải secrets.json, connection.txt hoặc hybrid-connection.txt lên GitHub.
-
-Kiểm thử: `npm run test:hybrid`. Kiểm thử Worker: chạy `npm ci` trong cloudflare, sau đó `npm test` hoặc `npm run test:hybrid-runtime`.
+Xem [hướng dẫn cập nhật và dừng bot cũ](CAP_NHAT_v3.9.0_BINANCE_FUTURES.md). Thư mục `GITHUB_UPLOAD` trong bản ZIP chứa đúng file cần ghi đè vào gốc repo để cập nhật GitHub Pages.

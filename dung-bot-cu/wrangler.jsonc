@@ -1,0 +1,10 @@
+{
+  "name": "binance-signal-paper",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-17",
+  "workers_dev": true,
+  "durable_objects": {"bindings": [{"name": "PAPER", "class_name": "PaperAccount"}]},
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["PaperAccount"]}],
+  "triggers": {"crons": []},
+  "observability": {"enabled": false}
+}

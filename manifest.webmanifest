@@ -1,7 +1,7 @@
 {
-  "name": "Signal · OKX Spot Workspace",
+  "name": "Signal · Binance Futures Workspace",
   "short_name": "Signal",
-  "description": "OKX Spot · RSI 5 khung · BTC paper trading",
+  "description": "Binance USDⓈ-M Futures · Watchlist · Chart · RSI 14 đa khung",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

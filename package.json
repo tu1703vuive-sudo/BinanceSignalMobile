@@ -1,8 +1,11 @@
 {
-  "name": "binance-signal-mobile-hybrid",
-  "version": "3.8.0",
+  "name": "binance-signal-mobile-futures",
+  "version": "3.9.0",
   "private": true,
   "type": "commonjs",
-  "engines": {"node": "24.x"},
-  "scripts": {"test:hybrid": "node --test vercel/tests/*.test.mjs cloudflare/tests/hybrid*.test.mjs"}
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "test:ui": "node tests/futures-app.integration.cjs",
+    "test:parity": "node tests/v41-parity.cjs"
+  }
 }

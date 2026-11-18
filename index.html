@@ -6,13 +6,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Signal">
-  <title>Signal · OKX Spot Workspace</title>
+  <title>Signal · Binance Futures Workspace</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=380">
+  <link rel="stylesheet" href="./styles.css?v=390">
 </head>
 <body>
-  <header class="topbar"><a class="brand" href="#watchlist" aria-label="Signal — về Watchlist"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 15l4-6 5 5 5-9"></path><path d="M15 5h4v4"></path></svg></span><span><b>Signal<span class="brand-dot">.</span></b><small>OKX SPOT WORKSPACE</small></span></a><div class="header-actions"><div id="connStatus" class="status-pill offline"><span class="dot"></span><span>Đang kết nối</span></div><button id="refreshBtn" class="icon-btn" aria-label="Làm mới dữ liệu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"></path><path d="M6 7a7 7 0 0 1 12 0l2 5M4 12l2 5a7 7 0 0 0 12 0"></path></svg></button><button class="icon-btn" id="appSettingsBtn" aria-label="Cài đặt ứng dụng"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z"></path><circle cx="12" cy="12" r="3"></circle></svg></button></div></header>
+  <header class="topbar"><a class="brand" href="#watchlist" aria-label="Signal — về Watchlist"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 15l4-6 5 5 5-9"></path><path d="M15 5h4v4"></path></svg></span><span><b>Signal<span class="brand-dot">.</span></b><small>BINANCE FUTURES WORKSPACE</small></span></a><div class="header-actions"><div id="connStatus" class="status-pill offline"><span class="dot"></span><span>Đang kết nối</span></div><button id="refreshBtn" class="icon-btn" aria-label="Làm mới dữ liệu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"></path><path d="M6 7a7 7 0 0 1 12 0l2 5M4 12l2 5a7 7 0 0 0 12 0"></path></svg></button><button class="icon-btn" id="appSettingsBtn" aria-label="Cài đặt ứng dụng"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z"></path><circle cx="12" cy="12" r="3"></circle></svg></button></div></header>
 
   <main class="shell">
 
@@ -102,46 +102,12 @@
             <p>Bộ chính: RSI v4.1 nguyên bản, gồm Reversal, Momentum và Breakout. Chỉ dùng nến đã đóng. 1M là tháng lịch UTC.</p>
             <p>Reversal: 15M cắt lên 30 (mới ≤40) / xuống 70 (mới ≥60). Momentum: cắt lên 50 (mới ≤65) / xuống 50 (mới ≥35). Breakout: cắt lên 70 (mới ≤85) / xuống 30 (mới ≥15). Mỗi nhóm còn phải đạt bộ lọc ngày, 4H, 1H và tháng bên dưới.</p>
             <p>Ưu tiên cùng hướng: Breakout → Reversal → Momentum. LONG/SHORT mâu thuẫn: chờ. Momentum/Breakout bị chặn nếu ngược cả ngày và tháng; Reversal vẫn xét nhưng có ngân sách rủi ro bối cảnh thấp hơn.</p>
-            <p>Điểm bối cảnh −100…+100 chỉ để tham khảo, không quyết định vào lệnh. Mỗi khung cần 100 nến đóng, riêng tháng 30. Giá trị lệnh và SL/TP vẫn theo cài đặt Paper hiện có.</p>
+            <p>Điểm bối cảnh −100…+100 chỉ để tham khảo, không quyết định vào lệnh. Mỗi khung cần 100 nến đóng, riêng tháng 30. Tín hiệu dùng để theo dõi thị trường.</p>
             <div id="rsiV41Rules" class="rsi-v41-rules"></div>
             <div id="rsiMtfClosedAt" class="rsi-mtf-closed-at"></div>
           </details></details></section>
 
-        <section id="paperPanel" class="paper-panel card" aria-labelledby="paperTitle">
-          <div class="section-title"><span id="paperTitle">PAPER TRADING · BTC</span><span class="paper-badge">GIẢ LẬP</span></div><div class="remote-status" id="remoteStatus"><span class="remote-status-dot"></span><span id="remoteStatusText">Trình duyệt · Chưa kết nối 24/7</span></div>
-          <label class="paper-auto-row"><span><b>Tự vào lệnh</b><small id="paperTarget">Theo dõi coin đang chọn · tối đa 1 lệnh mở</small></span><input id="paperAuto" type="checkbox" role="switch"></label>
-          <p id="paperStatus" class="paper-status" role="status">Tự vào lệnh đã bật · chờ dữ liệu.</p>
-          <div class="paper-wallet"><div><span>Tổng vốn ước tính · USDT</span><strong id="paperEquity">10,000.00</strong></div><div><span>Lãi/lỗ đã chốt</span><b id="paperRealized">0.00</b></div></div><details class="paper-account"><summary>Chi tiết tài khoản</summary><div><span>Số dư khả dụng</span><b id="paperCash">10,000.00</b></div><small id="paperCount">0 lệnh đóng</small></details>
-          <div id="paperOpen" class="paper-open"></div>
-
-          <details class="paper-settings"><summary>Cài đặt &amp; thông báo</summary><details class="remote-settings"><summary>Chạy 24/7 &amp; thông báo đẩy</summary><p class="subnote">Kết nối máy chủ để bot tiếp tục chạy khi tắt app. GitHub Pages riêng lẻ không chạy được bot nền.</p><label>Địa chỉ máy chủ HTTPS<input id="remoteUrl" type="url" placeholder="https://binance-signal-paper.tenban.workers.dev" autocomplete="url"></label><label>Mã kết nối máy chủ<input id="remoteToken" type="password" placeholder="Mã tạo khi cài máy chủ" autocomplete="off"></label><div class="paper-actions"><button id="remoteConnect" type="button" class="paper-small-btn">Kết nối 24/7</button><button id="remoteDisconnect" type="button" class="paper-small-btn" hidden="">Dừng bot &amp; ngắt kết nối</button><button id="remoteImport" type="button" class="paper-small-btn" hidden="">Chuyển sổ hiện tại lên máy chủ</button></div><p id="remoteSettingsStatus" class="subnote"></p><button id="remoteMarketCheck" type="button" class="paper-small-btn" hidden>Kiểm tra Vercel + OKX</button><p id="remoteMarketResult" class="market-diagnostic-result" aria-live="polite"></p></details>
-            <div class="paper-actions"><button id="paperNotify" type="button" class="paper-small-btn">Bật thông báo thiết bị</button><label><input id="paperSound" type="checkbox"> Âm thanh</label><button id="paperRetry" type="button" class="paper-small-btn" hidden="">Thử đồng bộ lại</button></div><div class="paper-form">
-              <label>Vốn ban đầu · USDT<input id="paper-initialCapital" type="number" min="10" max="1000000000" step="1"></label>
-              <label>Giá trị mỗi lệnh · USDT<input id="paper-notional" type="number" min="1" max="1000000000" step="1"></label>
-              <label>Stop Loss · %<input id="paper-slPct" type="number" min="0.1" max="20" step="0.1"></label>
-              <label>Take Profit · %<input id="paper-tpPct" type="number" min="0.1" max="99.9" step="0.1"></label>
-              <label>Phí mỗi chiều · %<input id="paper-feePct" type="number" min="0" max="1" step="0.01"></label>
-              <label>Trượt giá · %<input id="paper-slippagePct" type="number" min="0" max="1" step="0.01"></label>
-            </div>
-            <button id="paperSave" type="button" class="paper-small-btn">Lưu cho lệnh tiếp theo</button>
-            <p>Giả lập 1×, không gửi lệnh thật. TP/SL tính từ giá khớp giả, độc lập kế hoạch giao dịch phía trên. Vốn ban đầu khóa sau lệnh đầu tiên; cấu hình mới không sửa lệnh đang mở.</p>
-          </details>
-          <details class="paper-history"><summary>Lịch sử lệnh <span id="paperHistoryCount">0</span></summary><div id="paperHistory"></div><button id="paperMore" type="button" class="paper-small-btn" hidden="">Xem thêm 20 lệnh</button><div class="paper-actions"><button id="paperCsv" type="button" class="paper-small-btn">Xuất lịch sử CSV</button><button id="paperBackup" type="button" class="paper-small-btn">Sao lưu JSON</button></div></details>
-
-
-
-          <div id="paperToast" class="paper-toast" role="status" aria-live="polite" hidden=""></div>
-        <details class="paper-help"><summary>Vận hành &amp; dữ liệu</summary><p class="paper-note">Chỉ mở lệnh mới khi tab đang hiện và có dữ liệu trực tiếp. Trạng thái tự vào lệnh được lưu khi mở lại app. Khi đóng app, bot dừng; lần mở sau kiểm tra TP/SL bằng nến 1 phút. Cùng nến chạm cả TP và SL: tính SL trước. Phần nến trước thời điểm vào lệnh hoặc tick đã quan sát không được dùng lại.</p><p class="paper-note">Lịch sử lưu trên trình duyệt và địa chỉ website này. Sao lưu trước khi đổi thiết bị, đổi địa chỉ hoặc xóa dữ liệu web. Thông báo thiết bị cần được cấp quyền; âm thanh phụ thuộc trình duyệt.</p></details></section>
-
-
-
-
-
-
-
-
-
-        <p class="disclaimer">Dữ liệu thị trường OKX Spot · Giao dịch giả lập</p>
+        <p class="disclaimer">Dữ liệu Binance USDⓈ-M Futures · Tham khảo tín hiệu</p>
       <details class="advanced-panel card" id="advancedPanel"><summary>Phân tích nâng cao <span>Short / Swing · S/R</span></summary><div class="hero card">
 
 
@@ -198,11 +164,11 @@
 <dialog class="settings-sheet" id="appSettings"><div class="sheet-head"><div><span class="eyebrow">WORKSPACE</span><h2>Cài đặt</h2></div><button id="appSettingsClose" class="icon-btn" aria-label="Đóng cài đặt">×</button></div><p class="settings-caption">Chế độ phân tích nâng cao</p><div class="segmented" role="tablist" aria-label="Chọn chế độ phân tích">
         <button id="modeSwing" class="seg-btn" data-mode="swing">Dài hạn</button>
         <button id="modeShort" class="seg-btn active" data-mode="short">Ngắn hạn</button>
-      </div><p class="subnote">Bộ RSI và Paper Trading sử dụng quy tắc riêng. Chế độ này áp dụng cho kế hoạch Short/Swing trong phần nâng cao.</p><div class="card install-card">
+      </div><p class="subnote">Bộ RSI 5 khung sử dụng quy tắc riêng. Chế độ này áp dụng cho kế hoạch Short/Swing trong phần nâng cao.</p><div class="card install-card">
           <div>
             <strong>Cài như app trên iPhone</strong>
             <div class="muted">Safari → Chia sẻ → Thêm vào Màn hình chính.</div>
           </div>
           <button id="installBtn" class="primary hidden">Cài ứng dụng</button>
-        </div><p class="version-tag">v3.8.0 · RSI v4.1 · BTC</p></dialog><nav class="bottom-nav" aria-label="Điều hướng chính"><button type="button" data-section="watchlist" aria-label="Đến Watchlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"></path></svg><span>Watchlist</span></button><button type="button" data-section="chartSection" aria-label="Đến Chart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19h16M6 14V8m4 7V4m4 13V8m4 5V5"></path></svg><span>Chart</span></button><button type="button" data-section="rsiMtf" aria-label="Đến RSI"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"></path></svg><span>RSI</span></button><button type="button" data-section="paperPanel" aria-label="Đến Paper"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3"></rect><path d="M16 11h5M5 6V4h13"></path></svg><span>Paper</span><i id="paperNavBadge" hidden="">1</i></button></nav><script src="./binance-market.js?v=380" defer=""></script><script src="./market-data.js?v=380" defer=""></script><script src="./rsi-mtf.js?v=380" defer=""></script><script src="./paper-trading.js?v=380" defer=""></script><script src="./remote-paper.js?v=380" defer=""></script><script src="./paper-ui.js?v=380" defer=""></script><script src="./mobile-ui.js?v=380" defer=""></script><script src="./app.js?v=380" defer=""></script>
+        </div><p class="version-tag">v3.9.0 · Binance Futures · RSI v4.1</p></dialog><nav class="bottom-nav" aria-label="Điều hướng chính"><button type="button" data-section="watchlist" aria-label="Đến Watchlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"></path></svg><span>Watchlist</span></button><button type="button" data-section="chartSection" aria-label="Đến Chart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19h16M6 14V8m4 7V4m4 13V8m4 5V5"></path></svg><span>Chart</span></button><button type="button" data-section="rsiMtf" aria-label="Đến RSI"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"></path></svg><span>RSI</span></button></nav><script src="./futures-market.js?v=390" defer=""></script><script src="./rsi-mtf.js?v=390" defer=""></script><script src="./mobile-ui.js?v=390" defer=""></script><script src="./app.js?v=390" defer=""></script>
 </body></html>
