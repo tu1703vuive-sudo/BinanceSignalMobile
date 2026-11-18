@@ -1,8 +1,0 @@
-SIGNAL v3.9.0 - BINANCE FUTURES
-
-1. De dung bot Cloudflare cu: chay DUNG_BOT_CU_WINDOWS.cmd mot lan.
-2. Tai NOI DUNG thu muc GITHUB_UPLOAD len goc repo GitHub, Commit changes.
-3. Doi Pages cap nhat, dong/mo app. Cai dat can hien v3.9.0.
-4. Chi con Watchlist / Chart / RSI. Khong can Vercel hoac Cloudflare cho app.
-
-Huong dan day du: CAP_NHAT_v3.9.0_BINANCE_FUTURES.md
