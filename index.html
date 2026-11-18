@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="vi"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#080c12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Signal">
+  <title>Signal · Binance Futures Workspace</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./styles.css?v=3100">
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="#watchlist" aria-label="Signal — về Watchlist"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 15l4-6 5 5 5-9"></path><path d="M15 5h4v4"></path></svg></span><span><b>Signal<span class="brand-dot">.</span></b><small>BINANCE FUTURES WORKSPACE</small></span></a><div class="header-actions"><div id="connStatus" class="status-pill offline"><span class="dot"></span><span>Đang kết nối</span></div><button id="refreshBtn" class="icon-btn" aria-label="Làm mới dữ liệu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"></path><path d="M6 7a7 7 0 0 1 12 0l2 5M4 12l2 5a7 7 0 0 0 12 0"></path></svg></button><button class="icon-btn" id="appSettingsBtn" aria-label="Cài đặt ứng dụng"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z"></path><circle cx="12" cy="12" r="3"></circle></svg></button></div></header>
+
+  <main class="shell">
+
+
+    <section class="layout">
+      <aside class="watchlist card" id="watchlist">
+        <div class="section-title"><span>Watchlist</span><span class="watch-period">24H</span><span id="watchCount" class="muted"></span><button class="icon-btn watch-manage" id="watchManageBtn" aria-label="Thêm và quản lý coin"><span aria-hidden="true">＋</span></button></div>
+        <div id="watchList" class="watch-items"></div>
+      <div class="watch-manage-form" id="watchManage" hidden=""><div class="toolbar-row">
+        <input id="symbolInput" inputmode="latin" autocomplete="off" placeholder="VD: XRPUSDT" maxlength="20">
+        <button id="addSymbolBtn" class="primary">+ Coin</button>
+
+      </div><p class="subnote">Chạm ★ để đánh dấu yêu thích, × để xóa coin.</p></div></aside>
+
+      <section class="content"><div class="chart-card card" id="chartSection"><div class="hero-head asset-overview">
+            <div>
+              <div id="selectedSymbol" class="symbol">BTCUSDT</div>
+              <div id="modeLabel" class="muted">DÀI HẠN</div>
+            </div>
+            <div class="price-block">
+              <div id="selectedPrice" class="price">--</div>
+              <div id="selectedChange" class="change">--</div>
+            </div>
+          </div>
+          <div class="section-title chart-title-row">
+            <span id="chartTitle">Biểu đồ</span>
+            <span class="chart-head-right">
+              <button id="chartSettingsBtn" class="chart-settings-btn" type="button" aria-label="Cài đặt hiển thị biểu đồ" aria-expanded="false" aria-controls="chartSettingsPanel">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Zm8.1 4.5-1.8-1.1c.1-.7.1-1.3 0-2l1.8-1.1-2-3.5-2 .9c-.5-.4-1.1-.7-1.7-1L14.2 3h-4.1l-.3 2.3c-.6.2-1.2.6-1.7 1l-2-.9-2 3.5L6 10c-.1.7-.1 1.3 0 2l-1.8 1.1 2 3.5 2-.9c.5.4 1.1.7 1.7 1l.3 2.3h4.1l.3-2.3c.6-.2 1.2-.6 1.7-1l2 .9 1.8-3.5Z"></path></svg>
+              </button>
+              <span id="chartLiveBadge" class="chart-live"><i></i><span>SYNC</span></span><span id="updatedAt" class="muted"></span>
+            </span>
+            <div id="chartSettingsPanel" class="chart-settings-panel" role="dialog" aria-label="Cài đặt biểu đồ">
+              <div class="chart-settings-title"><strong>Hiển thị biểu đồ</strong><span>Chỉ thay đổi phần nhìn</span></div>
+              <div class="chart-presets"><button type="button" data-preset="minimal">Tối giản</button><button type="button" data-preset="trading">Trading</button><button type="button" data-preset="full">Đầy đủ</button></div>
+              <label class="chart-setting-row"><span><b>RSI 14</b><small>Panel động lượng</small></span><input type="checkbox" data-layer="rsi" checked=""><i></i></label>
+              <label class="chart-setting-row"><span><b>Volume</b><small>Khối lượng dưới nến</small></span><input type="checkbox" data-layer="volume" checked=""><i></i></label>
+              <label class="chart-setting-row"><span><b>Support / Resistance</b><small>Vùng S/R trên chart</small></span><input type="checkbox" data-layer="sr" checked=""><i></i></label>
+              <label class="chart-setting-row"><span><b>Entry / SL / TP</b><small>Vùng vào lệnh và mục tiêu</small></span><input type="checkbox" data-layer="trade" checked=""><i></i></label>
+              <label class="chart-setting-row"><span><b>Crosshair / OHLC</b><small>Thông tin khi rê hoặc chạm</small></span><input type="checkbox" data-layer="crosshair" checked=""><i></i></label>
+            </div>
+          </div>
+          <div id="timeframeSelector" class="timeframe-selector" aria-label="Khung thời gian biểu đồ">
+            <button class="tf-btn" data-tf="15m">15m</button>
+            <button class="tf-btn" data-tf="1h">1h</button>
+            <button class="tf-btn" data-tf="4h">4h</button>
+            <button class="tf-btn" data-tf="12h">12h</button>
+            <button class="tf-btn" data-tf="1d">1d</button>
+            <button class="tf-btn" data-tf="1w">1w</button>
+            <button class="tf-btn" data-tf="1M">1M</button>
+          </div>
+          <div id="chartLegend" class="chart-legend" aria-hidden="true">
+            <span data-legend="sr"><i class="legend-sr"></i>S/R</span><span data-legend="trade"><i class="legend-entry"></i>Entry</span><span data-legend="trade"><i class="legend-tp"></i>TP</span><span data-legend="trade"><i class="legend-sl"></i>SL</span>
+          </div>
+          <div class="chart-stage">
+            <canvas id="chartCanvas" width="1200" height="560"></canvas>
+            <div id="chartStats" class="chart-stats">-- nến · cache realtime</div>
+          </div>
+          <div id="rsiPanel" class="rsi-panel">
+            <div class="rsi-panel-head"><span>RSI (14)</span><strong id="rsiValue">--</strong></div>
+            <div class="rsi-stage">
+              <canvas id="rsiCanvas" width="1200" height="190" aria-label="RSI 14"></canvas>
+            </div>
+          </div>
+        </div>
+
+
+        <section id="rsiMtf" class="rsi-mtf card" aria-labelledby="rsiMtfTitle">
+          <div class="section-title"><span id="rsiMtfTitle">RSI · 5 KHUNG</span><span class="rsi-mtf-mode">v4.1 · 3 chiến lược</span></div>
+          <div class="rsi-mtf-caption"><span id="rsiMtfSymbol">BTCUSDT</span><span>RSI 14 · Giá đóng cửa</span></div>
+          <div id="rsiMtfGrid" class="rsi-mtf-grid" aria-label="RSI trực tiếp theo khung thời gian"></div>
+
+          <div class="rsi-mtf-directions" aria-label="Thiên hướng RSI">
+            <div id="rsiMtfLong">↑ LONG</div><div id="rsiMtfShort">↓ SHORT</div>
+          </div>
+          <div class="rsi-mtf-result" role="status" aria-live="polite" aria-atomic="true">
+            <strong id="rsiMtfSignal">ĐANG TẢI DỮ LIỆU</strong><span id="rsiMtfScore">Điểm xu hướng --</span>
+          </div>
+          <div class="rsi-mtf-meter" aria-hidden="true"><i id="rsiMtfMarker"></i></div>
+          <div class="rsi-mtf-meter-labels"><span>−100 · SHORT</span><span>LONG · +100</span></div>
+
+
+          <div id="rsiMtfWarnings" class="rsi-mtf-warnings"></div>
+
+        <details class="rsi-insights" id="rsiInsights"><summary><span class="insights-label">Chi tiết tín hiệu <span id="rsiInsightBias" class="insight-bias" data-tone="wait">Chờ dữ liệu</span></span><span class="insight-chevron" aria-hidden="true">⌄</span></summary><div class="insights-meta"><span>RSI v4.1 · 3 chiến lược</span><span id="rsiCountdown" class="muted">15M</span></div><div id="rsiV41Rules" class="rsi-v41-rules"></div><div class="rsi-mtf-source">Số lớn: trực tiếp · Chốt: nến đã đóng · ↗ ↘: chiều RSI chốt</div><p id="rsiMtfReason" class="rsi-mtf-reason">Đang lấy nến cho 1M · 1D · 4H · 1H · 15M.</p><div class="rsi-mtf-source">Tín hiệu RSI độc lập với kế hoạch Short / Swing nâng cao.</div><details class="rsi-mtf-details">
+            <summary>Cách tính &amp; điều kiện xác nhận</summary>
+            <p>Bộ chính: RSI v4.1 nguyên bản, gồm Reversal, Momentum và Breakout. Chỉ dùng nến đã đóng. 1M là tháng lịch UTC.</p>
+            <p>Reversal: 15M cắt lên 30 (mới ≤40) / xuống 70 (mới ≥60). Momentum: cắt lên 50 (mới ≤65) / xuống 50 (mới ≥35). Breakout: cắt lên 70 (mới ≤85) / xuống 30 (mới ≥15). Mỗi nhóm còn phải đạt bộ lọc ngày, 4H, 1H và tháng bên dưới.</p>
+            <p>Ưu tiên cùng hướng: Breakout → Reversal → Momentum. LONG/SHORT mâu thuẫn: chờ. Momentum/Breakout bị chặn nếu ngược cả ngày và tháng; Reversal vẫn xét nhưng có ngân sách rủi ro bối cảnh thấp hơn.</p>
+            <p>Điểm bối cảnh −100…+100 chỉ để tham khảo, không quyết định vào lệnh. Mỗi khung cần 100 nến đóng, riêng tháng 30. Tín hiệu dùng để theo dõi thị trường.</p>
+            <div id="rsiMtfClosedAt" class="rsi-mtf-closed-at"></div>
+          </details></details></section>
+
+        <p class="disclaimer">Dữ liệu Binance USDⓈ-M Futures · Tham khảo tín hiệu</p>
+</section>
+    </section>
+  </main>
+
+
+
+
+
+
+
+<dialog class="settings-sheet" id="appSettings"><div class="sheet-head"><div><span class="eyebrow">WORKSPACE</span><h2>Cài đặt</h2></div><button id="appSettingsClose" class="icon-btn" aria-label="Đóng cài đặt">×</button></div><p class="settings-caption">Chế độ phân tích nâng cao</p><div class="segmented" role="tablist" aria-label="Chọn chế độ phân tích">
+        <button id="modeSwing" class="seg-btn" data-mode="swing">Dài hạn</button>
+        <button id="modeShort" class="seg-btn active" data-mode="short">Ngắn hạn</button>
+      </div><p class="subnote">Bộ RSI 5 khung sử dụng quy tắc riêng. Chế độ này áp dụng cho kế hoạch Short/Swing trong phần nâng cao.</p>      <details class="advanced-panel card" id="advancedPanel"><summary>Phân tích nâng cao <span>Short / Swing · S/R</span></summary><div class="hero card">
+
+
+          <div class="signal-row">
+            <div id="signalBadge" class="signal wait">WAIT</div>
+            <div>
+              <div id="scoreText" class="score">Score --</div>
+              <div id="timeframes" class="timeframes">--</div>
+            </div>
+          </div>
+
+          <div id="planHint" class="plan-hint">Đang tải dữ liệu...</div>
+
+          <div class="inline-plan">
+            <div id="inlinePlanTitle" class="inline-plan-title">WAIT · KẾ HOẠCH</div>
+            <div class="metrics inline-plan-metrics">
+              <div><span>Entry / Vùng canh</span><strong id="entryValue">--</strong></div>
+              <div><span>Stop Loss</span><strong id="slValue">--</strong></div>
+              <div><span>TP1</span><strong id="tp1Value">--</strong></div>
+              <div><span>TP2</span><strong id="tp2Value">--</strong></div>
+              <div><span>TP3</span><strong id="tp3Value">--</strong></div>
+              <div><span>Invalidation</span><strong id="invalidValue">--</strong></div>
+            </div>
+            <div id="triggerText" class="subnote inline-plan-note"></div>
+            <div id="breakoutText" class="subnote inline-plan-note"></div>
+          </div>
+        </div><div class="grid-2">
+          <div class="card levels-card">
+            <div class="section-title">Hỗ trợ / Kháng cự</div>
+            <div class="levels-cols">
+              <div>
+                <div class="mini-title support-title">SUPPORT</div>
+                <div id="supportList" class="level-list"></div>
+              </div>
+              <div>
+                <div class="mini-title resistance-title">RESISTANCE</div>
+                <div id="resistanceList" class="level-list"></div>
+              </div>
+            </div>
+          </div>
+        </div><div class="card reasons-card">
+          <div class="section-title">Lý do tín hiệu</div>
+          <div id="reasonsList" class="reasons"></div>
+        </div></details>
+<div class="card install-card">
+          <div>
+            <strong>Cài như app trên iPhone</strong>
+            <div class="muted">Safari → Chia sẻ → Thêm vào Màn hình chính.</div>
+          </div>
+          <button id="installBtn" class="primary hidden">Cài ứng dụng</button>
+        </div><p class="version-tag">v3.10.0 · Binance Futures · RSI v4.1</p></dialog><nav class="bottom-nav" aria-label="Điều hướng chính"><button type="button" data-section="watchlist" aria-label="Đến Watchlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"></path></svg><span>Watchlist</span></button><button type="button" data-section="chartSection" aria-label="Đến Chart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19h16M6 14V8m4 7V4m4 13V8m4 5V5"></path></svg><span>Chart</span></button><button type="button" data-section="rsiMtf" aria-label="Đến RSI"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"></path></svg><span>RSI</span></button></nav><script src="./futures-market.js?v=3100" defer=""></script><script src="./workspace-view.js?v=3100" defer=""></script><script src="./rsi-mtf.js?v=3100" defer=""></script><script src="./mobile-ui.js?v=3100" defer=""></script><script src="./app.js?v=3100" defer=""></script>
+</body></html>

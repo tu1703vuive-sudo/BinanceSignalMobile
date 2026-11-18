@@ -1,0 +1,10 @@
+SIGNAL v3.10.0 - WATCHLIST TOI + CHI TIET RSI
+
+1. Tai NOI DUNG thu muc GITHUB_UPLOAD len goc repo GitHub, Commit changes.
+2. Doi Pages cap nhat, dong/mo lai app. Cai dat can hien v3.10.0.
+3. Watchlist dang hang, co icon/duong gia/gia/phan tram.
+4. Phan tich nang cao nam trong Cai dat.
+5. Chi tiet tin hieu xanh LONG / do SHORT; mo xem 6 chien luoc voi diem lon 3/5.
+
+Huong dan: CAP_NHAT_v3.10.0_GIAO_DIEN.md
+Khong can deploy Vercel/Cloudflare. Chi dung cong cu dung bot cu neu bot v3.8 van con chay.
